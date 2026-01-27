@@ -1,5 +1,5 @@
-# windcdf-qc
-NetCDF-Based Quality Control for Wind Time Series
+# WindCDF
+A NetCDF-Based Quality Control for Wind Time Series
 
 
 ## Contribute
