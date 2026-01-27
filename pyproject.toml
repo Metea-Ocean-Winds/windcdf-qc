@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "windcdf-qc"
+version = "0.1.0"
+description = "NetCDF-based quality control tool for wind industry time series"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+license = { text = "GPL-3.0" }
+
+authors = [
+  { name = "Your Name", email = "your.email@example.com" }
+]
+
+keywords = [
+  "wind-energy",
+  "netcdf",
+  "quality-control",
+  "time-series",
+  "data-validation",
+]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering",
+]
+
+dependencies = [
+  "numpy>=1.26",
+  "netCDF4>=1.7",
+  "cftime>=1.6",
+  "pyyaml>=6.0",
+  "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov",
+  "ruff",
+  "black",
+  "pre-commit",
+]
+
+docs = [
+  "mkdocs",
+  "mkdocs-material",
+]
+
+[project.scripts]
+windcdf = "windcdf.cli.main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 88
+target-version = ["py312", "py313", "py314"]
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "I"]
