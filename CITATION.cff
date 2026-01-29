@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+title: WindCDF
+message: >
+  If you use WindCDF in academic work, reports, or publications,
+  please cite it using the following information.
+type: software
+authors:
+  - family-names: Miguel
+    given-names: Córdoba Muñoz
+    affiliation: Ocean Winds
+version: 0.1.0
+date-released: 2026-01-01
+url: https://github.com/your-org/windcdf-qc
+license: GPL-3.0
+keywords:
+  - wind energy
+  - quality control
+  - netCDF
+  - time series
+  - data validation
+  - qc flag
