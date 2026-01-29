@@ -21,5 +21,6 @@ Under the condition that:
 This license ensures that WindCDF remains open-source and that improvements made by the community are shared back.
 
 For full details, see the [LICENSE](LICENSE) file.
+
 ![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
