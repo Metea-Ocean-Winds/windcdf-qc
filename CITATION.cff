@@ -10,7 +10,7 @@ authors:
     affiliation: Ocean Winds
 version: 0.1.0
 date-released: 2026-01-01
-url: https://github.com/your-org/windcdf-qc
+url: https://github.com/Metea-Ocean-Winds/windcdf-qc
 license: GPL-3.0
 keywords:
   - wind energy
