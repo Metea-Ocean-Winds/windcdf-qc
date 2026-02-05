@@ -1,0 +1,15 @@
+# Configuration for onshore wind sites
+
+qc:
+  enabled_checks:
+    - range_check
+    - spike_check
+    - stuck_sensor
+    - gap_check
+    - ramp_rate
+
+range_check:
+  wind_speed_min: 0.0
+  wind_speed_max: 50.0
+  temperature_min: -40.0
+  temperature_max: 50.0

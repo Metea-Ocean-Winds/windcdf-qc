@@ -1,0 +1,38 @@
+name: QC Check Proposal
+description: Propose a new QC check
+title: "[QC CHECK]: "
+labels: ["qc-check"]
+body:
+  - type: input
+    id: check_name
+    attributes:
+      label: Check Name
+      description: Short identifier for the check
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What does this check detect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: algorithm
+    attributes:
+      label: Algorithm
+      description: Describe the detection algorithm
+
+  - type: textarea
+    id: thresholds
+    attributes:
+      label: Suggested Thresholds
+      description: Default threshold values and rationale
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Papers, standards, or prior art

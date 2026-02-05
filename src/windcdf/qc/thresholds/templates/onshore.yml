@@ -1,0 +1,14 @@
+# QC thresholds for onshore wind sites
+
+range_check:
+  wind_speed_min: 0.0
+  wind_speed_max: 50.0  # Lower max for onshore
+  temperature_min: -40.0
+  temperature_max: 50.0
+
+stuck_sensor:
+  min_stuck_count: 6
+  tolerance: 0.001
+
+ramp_rate:
+  wind_speed_max_rate: 0.00833

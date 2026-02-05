@@ -1,0 +1,32 @@
+# Default QC thresholds for windcdf-qc
+
+range_check:
+  wind_speed_min: 0.0
+  wind_speed_max: 75.0
+  wind_direction_min: 0.0
+  wind_direction_max: 360.0
+  temperature_min: -60.0
+  temperature_max: 60.0
+  pressure_min: 800.0
+  pressure_max: 1100.0
+  humidity_min: 0.0
+  humidity_max: 100.0
+
+spike_check:
+  window_size: 5
+  threshold_multiplier: 3.0
+
+stuck_sensor:
+  min_stuck_count: 6
+  tolerance: 0.001
+
+gap_check:
+  gap_multiplier: 2.0
+
+ramp_rate:
+  wind_speed_max_rate: 0.00833  # 5 m/s per 10 minutes
+  temperature_max_rate: 0.00139  # 5°C per hour
+  pressure_max_rate: 0.00278  # 10 hPa per hour
+
+wind_direction_wrap:
+  max_angular_change: 180.0

@@ -1,0 +1,26 @@
+# Default configuration for windcdf-qc
+
+# QC check settings
+qc:
+  enabled_checks:
+    - range_check
+    - spike_check
+    - stuck_sensor
+    - gap_check
+    - ramp_rate
+    - wind_direction_wrap
+
+# GUI settings
+gui:
+  window_width: 1200
+  window_height: 800
+  theme: clam
+
+# Logging
+logging:
+  level: INFO
+  file: null
+
+# Export settings
+export:
+  default_format: json
