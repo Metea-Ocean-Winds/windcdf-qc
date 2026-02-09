@@ -1,5 +1,0 @@
-# Minimal configuration example
-
-qc:
-  enabled_checks:
-    - range_check

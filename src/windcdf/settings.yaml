@@ -1,0 +1,63 @@
+number of panels: 4
+
+left_panel:
+  minsize: 300 # 180 great for <=3, otherwise 300
+  width: 400   # 260 great for <=3, otherwise 400
+
+
+status_mapping:
+  # Positive codes: Pass states
+  3:
+    label: "Pass"
+    marker: null
+    description: "Data passed all quality checks"
+  
+  2:
+    label: "Pass after Process"
+    marker: null
+    description: "Data passed after processing/correction"
+
+  
+  # Negative codes: Problem states
+  -11:
+    label: "Suspect"
+    marker:
+      color: grey
+      edgecolor: grey
+    description: "Data automatically flagged as suspect" 
+
+  -12:
+    label: "Suspect"
+    marker:
+      color: grey
+      edgecolor: grey
+    description: "Data manually flagged as suspect"
+    
+  -21:
+    label: "Fail"
+    marker:
+      color: black
+      edgecolor: black
+    description: "Data automatically flagged as failed"
+
+  -22:
+    label: "Fail"
+    marker:
+      color: black
+      edgecolor: black
+    description: "Data manually flagged as failed"
+  
+  -33:
+    label: "To Be Fixed"
+    marker:
+      color: white
+      edgecolor: black
+    description: "Data needs manual correction"
+  
+  -34:
+    label: "To Be Interpolated"
+    marker:
+      color: white
+      edgecolor: black
+    description: "Data needs interpolation"
+
