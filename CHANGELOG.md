@@ -8,4 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Initial project structure
+
+- v0.1.0 Initial project structure
+
+
+### Changed
+
+- Brininging the basic GUI from the Ocean Winds private repository.
