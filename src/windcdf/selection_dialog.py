@@ -137,7 +137,7 @@ class SelectionDialog(tk.Toplevel):
                         final_selection[source][h].append(var)
                         
                         if self._qc_map.get(source, {}).get(var):
-                            qc_var = f"{var}_qc_flag"
+                            qc_var = f"{var}_qcflag"
                             if qc_var not in final_selection[source][h]:
                                 final_selection[source][h].append(qc_var)
         

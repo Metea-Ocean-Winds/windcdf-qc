@@ -507,7 +507,7 @@ class WindCDF_GUI(tk.Frame):
         # 2. Selected for QC apply (checkbox checked)
         active_keys = set()
         for (source, z, var), config in self._plot_config.items():
-            if var.endswith("_qc_flag"):
+            if var.endswith("_qcflag"):
                 continue
             if not any(config["panels"]):
                 continue
@@ -527,7 +527,7 @@ class WindCDF_GUI(tk.Frame):
         changes_made = 0
         
         for source, z, var in active_keys:
-            qc_var = f"{var}_qc_flag"
+            qc_var = f"{var}_qcflag"
             
             # Check if QC data exists in cache
             if source not in self._source_data_cache:
@@ -1038,7 +1038,7 @@ class WindCDF_GUI(tk.Frame):
         filepath = filedialog.asksaveasfilename(
             title="Save Dataset",
             defaultextension=".nc",
-            initialfile=f"{selected_dataset}_qc.nc",
+            initialfile=f"{selected_dataset}_qced.nc",
             filetypes=[
                 ("NetCDF files", "*.nc"),
                 ("All files", "*.*")
@@ -1129,13 +1129,13 @@ class WindCDF_GUI(tk.Frame):
             source_cache = self._source_data_cache[source]
             
             for var_name, series_dict in source_cache["vars"].items():
-                if not var_name.endswith("_qc_flag"):
+                if not var_name.endswith("_qcflag"):
                     continue
                 
                 # Check if this QC variable exists in the dataset
                 if var_name not in ds.data_vars:
                     # Create new QC variable in dataset
-                    base_var = var_name.replace("_qc_flag", "")
+                    base_var = var_name.replace("_qcflag", "")
                     if base_var in ds.data_vars:
                         # Create with same dimensions as base variable
                         base_dims = ds[base_var].dims
@@ -1179,7 +1179,7 @@ class WindCDF_GUI(tk.Frame):
         
         # Add metadata about QC modification
         ds.attrs["qc_modified"] = pd.Timestamp.now().isoformat()
-        ds.attrs["qc_tool"] = "QOWCheck"
+        ds.attrs["qc_tool"] = "WindCDF 0.1.0"
         
         # Save to file
         ds.to_netcdf(filepath)
@@ -1401,7 +1401,7 @@ class WindCDF_GUI(tk.Frame):
         data = source_cache["vars"][var][z]
         
         # Get QC data if available
-        qc_var = f"{var}_qc_flag"
+        qc_var = f"{var}_qcflag"
         qc_data = None
         if qc_var in source_cache["vars"] and z in source_cache["vars"][qc_var]:
             qc_data = source_cache["vars"][qc_var][z]
@@ -1426,7 +1426,7 @@ class WindCDF_GUI(tk.Frame):
             has_variables = False
             for z, var_list in self._user_selections[source].items():
                 for var in var_list:
-                    if not var.endswith("_qc_flag"):
+                    if not var.endswith("_qcflag"):
                         has_variables = True
                         break
                 if has_variables:
@@ -1466,7 +1466,7 @@ class WindCDF_GUI(tk.Frame):
             all_vars = sorted(set(
                 v for var_list in z_vars.values() 
                 for v in var_list 
-                if not v.endswith("_qc_flag")
+                if not v.endswith("_qcflag")
             ))
             
             for var in all_vars:
