@@ -4,6 +4,7 @@ left_panel:
   minsize: 300 # 180 great for <=3, otherwise 300
   width: 400   # 260 great for <=3, otherwise 400
 
+date_formatter: "%Y-%m-%d\n%H:%M:%S"
 
 status_mapping:
   # Positive codes: Pass states

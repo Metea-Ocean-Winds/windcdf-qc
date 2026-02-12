@@ -390,7 +390,7 @@ class WindCDF_GUI(tk.Frame):
         """Apply datetime formatting to all axes."""
         for ax in self.axes:
             # Use custom date formatter with smaller font
-            formatter = mdates.DateFormatter('%Y-%m-%d\n%H')
+            formatter = mdates.DateFormatter(self._settings.get("date_formatter", "%Y-%m-%d\n%H:%M"))
             ax.xaxis.set_major_formatter(formatter)
             ax.xaxis.set_major_locator(mdates.AutoDateLocator())
             ax.xaxis.set_minor_locator(mdates.AutoDateLocator(minticks=2, maxticks=10))
