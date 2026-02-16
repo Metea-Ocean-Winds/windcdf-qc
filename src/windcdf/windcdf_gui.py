@@ -78,36 +78,25 @@ class WindCDF_GUI(tk.Frame):
         self._build_ui()
     
     def _load_settings(self, path: str | None) -> dict:
-        """Load settings from YAML file or use defaults."""
-        default_settings = {
-            "number of panels": 3,
-            "status_mapping": {
-                3: {"label": "Pass", "marker": None, "description": "Data passed all quality checks"},
-                2: {"label": "Pass after Process", "marker": None, "description": "Data passed after processing/correction"},
-                -11: {"label": "Suspect", "marker": {"color": "grey", "edgecolor": "grey"}, "description": "Data automatically flagged as suspect"},
-                -12: {"label": "Suspect", "marker": {"color": "grey", "edgecolor": "grey"}, "description": "Data manually flagged as suspect"},
-                -21: {"label": "Fail", "marker": {"color": "black", "edgecolor": "black"}, "description": "Data automatically flagged as failed"},
-                -22: {"label": "Fail", "marker": {"color": "black", "edgecolor": "black"}, "description": "Data manually flagged as failed"},
-                -33: {"label": "To Be Fixed", "marker": {"color": "white", "edgecolor": "black"}, "description": "Data needs manual correction"},
-                -34: {"label": "To Be Interpolated", "marker": {"color": "white", "edgecolor": "black"}, "description": "Data needs interpolation"},
-            }
-        }
-        
+        """Load settings from YAML file or raise error if not found."""
         if path is None:
             # Try to load from default location
             default_path = os.path.join(os.path.dirname(__file__), "settings.yaml")
             if os.path.exists(default_path):
                 path = default_path
-        
+
         if path and os.path.exists(path):
             try:
                 with open(path, "r") as f:
                     config = yaml.safe_load(f)
-                    return config if config else default_settings
+                    if config:
+                        return config
+                    else:
+                        raise RuntimeError(f"Settings file {path} is empty.")
             except Exception as e:
-                print(f"Warning: Could not load settings from {path}: {e}")
-        
-        return default_settings
+                raise RuntimeError(f"Could not load settings from {path}: {e}")
+
+        raise FileNotFoundError("settings.yaml not found. Please provide a valid settings file.")
     
     def _build_status_mapping(self) -> dict:
         """Build status mapping for dropdown from settings config."""
