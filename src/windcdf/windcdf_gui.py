@@ -1096,75 +1096,32 @@ class WindCDF_GUI(tk.Frame):
         series_dim = ds_info["series_dim"]
         source_dim = ds_info["source_dim"]
         
-        # Get source values based on structure
-        if shape_type == "time_plus_2" and source_dim:
-            sources = ds[source_dim].values.tolist()
-        elif "source" in ds.attrs:
-            sources = [ds.attrs["source"]]
-        else:
-            sources = [dataset_name]
+        # Update QC flags from cache based on dataset structure
+        if shape_type == "time_only":
+            # Single source dataset
+            source_name = ds.attrs.get("source", dataset_name)
+            self._update_qc_for_source(ds, source_name, shape_type, None, None, "all")
         
-        # Get series values based on structure
-        if series_dim and series_dim in ds.dims:
-            series_values = ds[series_dim].values.tolist()
-        else:
-            series_values = ["all"]
+        elif shape_type == "time_plus_1":
+            if series_dim == "source":
+                # Dataset split by source dimension - reconstruct all sources
+                source_values = [self._manager._to_python_type(v) for v in ds[series_dim].values]
+                for source in source_values:
+                    self._update_qc_for_source(ds, source, shape_type, series_dim, None, "all")
+            else:
+                # Normal series dimension
+                source_name = ds.attrs.get("source", dataset_name)
+                series_values = [self._manager._to_python_type(v) for v in ds[series_dim].values]
+                for series_val in series_values:
+                    self._update_qc_for_source(ds, source_name, shape_type, series_dim, None, series_val)
         
-        # Update QC flags from cache
-        for source in sources:
-            if source not in self._source_data_cache:
-                continue
-            
-            source_cache = self._source_data_cache[source]
-            
-            for var_name, series_dict in source_cache["vars"].items():
-                if not var_name.endswith("_qcflag"):
-                    continue
-                
-                # Check if this QC variable exists in the dataset
-                if var_name not in ds.data_vars:
-                    # Create new QC variable in dataset
-                    base_var = var_name.replace("_qcflag", "")
-                    if base_var in ds.data_vars:
-                        # Create with same dimensions as base variable
-                        base_dims = ds[base_var].dims
-                        shape = ds[base_var].shape
-                        qc_data = np.ones(shape, dtype=int)
-                        ds[var_name] = (base_dims, qc_data)
-                
-                if var_name not in ds.data_vars:
-                    continue
-                
-                # Update values from cache
-                for series_val, qc_array in series_dict.items():
-                    try:
-                        dims = ds[var_name].dims
-                        
-                        if shape_type == "time_only":
-                            ds[var_name].values[:] = qc_array
-                        elif shape_type == "time_plus_1":
-                            if series_val == "all":
-                                ds[var_name].values[:] = qc_array
-                            else:
-                                series_idx = list(ds[series_dim].values).index(series_val)
-                                if series_dim == dims[0]:
-                                    ds[var_name].values[series_idx, :] = qc_array
-                                else:
-                                    ds[var_name].values[:, series_idx] = qc_array
-                        else:  # time_plus_2
-                            source_idx = list(ds[source_dim].values).index(source)
-                            series_idx = list(ds[series_dim].values).index(series_val)
-                            
-                            # Determine dimension order and assign
-                            dim_order = {d: i for i, d in enumerate(dims)}
-                            if source_dim in dim_order and series_dim in dim_order:
-                                # Build slice tuple based on dimension order
-                                slices = [slice(None)] * len(dims)
-                                slices[dim_order[source_dim]] = source_idx
-                                slices[dim_order[series_dim]] = series_idx
-                                ds[var_name].values[tuple(slices)] = qc_array
-                    except (ValueError, IndexError) as e:
-                        print(f"Warning: Could not update {var_name} at {series_val}: {e}")
+        else:  # time_plus_2
+            # Both source and series dimensions
+            source_values = [self._manager._to_python_type(v) for v in ds[source_dim].values]
+            series_values = [self._manager._to_python_type(v) for v in ds[series_dim].values]
+            for source in source_values:
+                for series_val in series_values:
+                    self._update_qc_for_source(ds, source, shape_type, series_dim, source_dim, series_val)
         
         # Add metadata about QC modification
         ds.attrs["qc_modified"] = pd.Timestamp.now().isoformat()
@@ -1172,6 +1129,108 @@ class WindCDF_GUI(tk.Frame):
         
         # Save to file
         ds.to_netcdf(filepath)
+
+    def _update_qc_for_source(
+        self, 
+        ds: xr.Dataset, 
+        source: str, 
+        shape_type: str,
+        series_dim: str | None,
+        source_dim: str | None,
+        series_val: str | int | float
+    ):
+        """Update QC variables in dataset for a specific source and series value.
+        
+        Parameters
+        ----------
+        ds : xr.Dataset
+            Dataset to update (modified in place)
+        source : str
+            Source identifier from cache
+        shape_type : str
+            Dataset shape type (time_only, time_plus_1, time_plus_2)
+        series_dim : str | None
+            Name of series dimension
+        source_dim : str | None
+            Name of source dimension
+        series_val : str | int | float
+            Series value to update ("all" for source-split datasets)
+        """
+        if source not in self._source_data_cache:
+            return
+        
+        source_cache = self._source_data_cache[source]
+        
+        for var_name, series_dict in source_cache["vars"].items():
+            if not var_name.endswith("_qcflag"):
+                continue
+            
+            if series_val not in series_dict:
+                continue
+            
+            qc_array = series_dict[series_val]
+            base_var = var_name.replace("_qcflag", "")
+            
+            # Create QC variable if it doesn't exist
+            if var_name not in ds.data_vars:
+                if base_var not in ds.data_vars:
+                    continue
+                
+                # Create with same dimensions and shape as base variable
+                base_dims = ds[base_var].dims
+                shape = ds[base_var].shape
+                qc_data = np.ones(shape, dtype=int)
+                ds[var_name] = (base_dims, qc_data)
+                
+                # Add QC flag attributes
+                ds[var_name].attrs['long_name'] = f"QC flag for {base_var}"
+                ds[var_name].attrs['flag_values'] = list(self._status_mapping_config.keys())
+                ds[var_name].attrs['flag_meanings'] = ' '.join([
+                    info['label'].replace(' ', '_') 
+                    for info in self._status_mapping_config.values()
+                ])
+            
+            try:
+                dims = ds[var_name].dims
+                
+                if shape_type == "time_only":
+                    # Direct assignment for time-only datasets
+                    ds[var_name].values[:] = qc_array
+                
+                elif shape_type == "time_plus_1":
+                    if series_dim == "source":
+                        # Find index of this source in the source dimension
+                        source_idx = list(ds[series_dim].values).index(source)
+                        
+                        # Assign based on dimension order
+                        if series_dim == dims[0]:
+                            ds[var_name].values[source_idx, :] = qc_array
+                        else:
+                            ds[var_name].values[:, source_idx] = qc_array
+                    else:
+                        # Normal series dimension
+                        if series_val == "all":
+                            ds[var_name].values[:] = qc_array
+                        else:
+                            series_idx = list(ds[series_dim].values).index(series_val)
+                            if series_dim == dims[0]:
+                                ds[var_name].values[series_idx, :] = qc_array
+                            else:
+                                ds[var_name].values[:, series_idx] = qc_array
+                
+                else:  # time_plus_2
+                    source_idx = list(ds[source_dim].values).index(source)
+                    series_idx = list(ds[series_dim].values).index(series_val)
+                    
+                    # Build slice tuple based on dimension order
+                    dim_order = {d: i for i, d in enumerate(dims)}
+                    slices = [slice(None)] * len(dims)
+                    slices[dim_order[source_dim]] = source_idx
+                    slices[dim_order[series_dim]] = series_idx
+                    ds[var_name].values[tuple(slices)] = qc_array
+            
+            except (ValueError, IndexError) as e:
+                print(f"Warning: Could not update {var_name} for source={source}, series={series_val}: {e}")
             
     def register_dataset(self, ds: xr.Dataset, identifier: str):
         """Register a dataset using the DatasetManager."""
