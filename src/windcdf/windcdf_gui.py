@@ -14,6 +14,9 @@ from matplotlib.widgets import SpanSelector
 from datamanager import DatasetManager
 from selection_dialog import SelectionDialog
 
+from panel_settings import PanelSettingsManager
+
+from typing import Dict, List, Any, Optional
 
 class WindCDF_GUI(tk.Frame):
     """Graphical User Interface for timer series plot and quality control of NetCDF datasets."""
@@ -108,6 +111,25 @@ class WindCDF_GUI(tk.Frame):
     
     def _build_ui(self):
         """Build the main user interface."""
+        # Add menu bar first
+        menubar = tk.Menu(self.master)
+        self.master.config(menu=menubar)
+        
+        # File menu
+        file_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Load Dataset", command=self._load_dataset_from_file)
+        file_menu.add_command(label="Save Dataset", command=self._save_dataset_to_file)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.master.quit)
+        
+        # Panel Settings menu
+        panel_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Panel Settings", menu=panel_menu)
+        panel_menu.add_command(label="Save Panel Configuration", command=self.save_panel_appearance)
+        panel_menu.add_command(label="Load Panel Configuration", command=self.load_panel_appearance)
+        
+        # Continue with existing UI building
         main_container = tk.PanedWindow(self, orient=tk.HORIZONTAL, sashwidth=5)
         main_container.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         
@@ -131,19 +153,19 @@ class WindCDF_GUI(tk.Frame):
         control_frame = tk.Frame(parent)
         control_frame.pack(fill="x", padx=5, pady=5)
         
-        self._load_btn = tk.Button(
-            control_frame, 
-            text="Load Dataset",
-            command=self._load_dataset_from_file
-        )
-        self._load_btn.pack(side="left", padx=(0, 5))
+        # self._load_btn = tk.Button(
+        #     control_frame, 
+        #     text="Load Dataset",
+        #     command=self._load_dataset_from_file
+        # )
+        #self._load_btn.pack(side="left", padx=(0, 5))
         
-        self._save_btn = tk.Button(
-            control_frame,
-            text="Save Dataset",
-            command=self._save_dataset_to_file
-        )
-        self._save_btn.pack(side="left", padx=(0, 5))
+        # self._save_btn = tk.Button(
+        #     control_frame,
+        #     text="Save Dataset",
+        #     command=self._save_dataset_to_file
+        # )
+        # self._save_btn.pack(side="left", padx=(0, 5))
         
         var_container = tk.Frame(parent)
         var_container.pack(fill="both", expand=True, padx=5, pady=5)
@@ -265,21 +287,28 @@ class WindCDF_GUI(tk.Frame):
         
         tk.Label(y_ctrl_frame, text="Y-range:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=5)
         
+        # Store panel name variables
+        self._panel_name_vars: list[tk.StringVar] = []
+        
         for i in range(self._num_panels):
             # Initialize variables
             lock_var = tk.BooleanVar(value=False)
             min_var = tk.StringVar()
             max_var = tk.StringVar()
+            name_var = tk.StringVar(value=f"Panel {i+1}")
             
             self._y_lock_vars.append(lock_var)
             self._y_min_vars.append(min_var)
             self._y_max_vars.append(max_var)
+            self._panel_name_vars.append(name_var)
             
             # Panel frame
             panel_frame = tk.Frame(y_ctrl_frame)
             panel_frame.pack(side=tk.LEFT, padx=(10, 5))
             
-            tk.Label(panel_frame, text=f"P{i+1}:", font=("Arial", 8, "bold")).pack(side=tk.LEFT, padx=2)
+            # Panel name entry
+            name_entry = tk.Entry(panel_frame, width=8, textvariable=name_var, font=("Arial", 8))
+            name_entry.pack(side=tk.LEFT, padx=2)
             
             tk.Checkbutton(
                 panel_frame,
@@ -1692,12 +1721,23 @@ class WindCDF_GUI(tk.Frame):
     def _update_line_color(self, key, new_color):
         """Update only the color of existing lines without full redraw."""
         source, z, var = key
-        for p_idx in range(3):
+        
+        # Update color in plot config
+        self._plot_config[key]["color"] = new_color
+        
+        # Update color button if it exists
+        if "color_btn" in self._plot_config[key]:
+            self._plot_config[key]["color_btn"].config(bg=new_color)
+        
+        # Update all plotted lines for this variable across all panels
+        for p_idx in range(self._num_panels):
             line_key = (source, z, var, p_idx)
             if line_key in self._plot_lines:
                 artists = self._plot_lines[line_key]
-                if artists[0] is not None:
+                # Check if artists list exists and has at least one element (the line)
+                if artists and len(artists) > 0 and artists[0] is not None:
                     artists[0].set_color(new_color)
+        
         self.canvas.draw_idle()
     
     def _toggle_panel(self, key, panel_idx, var_bool):
@@ -1731,6 +1771,10 @@ class WindCDF_GUI(tk.Frame):
         time, data, qc_data = cached
         color = self._plot_config[key]["color"]
         ax = self.axes[panel_idx]
+        
+        # Update ylabel with panel name
+        panel_name = self._panel_name_vars[panel_idx].get()
+        ax.set_ylabel(panel_name)
         
         line, = ax.plot(time, data, color=color, linewidth=1.0, label=f"{var} z={z}")
         
@@ -1822,25 +1866,204 @@ class WindCDF_GUI(tk.Frame):
                     
                     line_key = (source, z, var, p_idx)
                     self._plot_lines[line_key] = [line] + scatters
+
+
+    def collect_panel_settings(self) -> dict[str, Any]:
+        """Collect current panel settings for saving."""
+        panels_config = []
         
-        # Apply locked y-ranges after plotting
-        self._apply_locked_y_ranges()
+        for panel_idx in range(self._num_panels):
+            panel_info = {
+                'panel_index': panel_idx,
+                'name': self._panel_name_vars[panel_idx].get(),
+                'y_axis_locked': self._y_lock_vars[panel_idx].get(),
+                'y_min': None,
+                'y_max': None
+            }
+            
+            # Get y-axis limits if locked
+            if self._y_lock_vars[panel_idx].get():
+                try:
+                    y_min = float(self._y_min_vars[panel_idx].get())
+                    y_max = float(self._y_max_vars[panel_idx].get())
+                    panel_info['y_min'] = y_min
+                    panel_info['y_max'] = y_max
+                except ValueError:
+                    pass
+            
+            panels_config.append(panel_info)
         
-        # Update time controls
-        self._update_time_slider_from_axes()
-        self._update_window_controls_from_axes()
+        # Collect variable colors
+        variable_colors = {}
+        for (source, z, var), config in self._plot_config.items():
+            if not var.endswith("_qcflag"):
+                key = f"{source}|{z}|{var}"
+                variable_colors[key] = config['color']
         
-        # Compute time bounds before formatting
-        self._compute_time_bounds()
-        
-        # Reinitialize span selectors
-        self._init_span_selectors()
-        
-        # Apply datetime formatting to x-axis after bounds are computed
-        self._apply_datetime_formatting()
-        
-        self.canvas.draw_idle()
+        return {
+            'panels': panels_config,
+            'variable_colors': variable_colors
+        }
     
+    def save_panel_appearance(self):
+        """Save current panel appearance to YAML file."""
+        # Ask user for filename
+        filepath = filedialog.asksaveasfilename(
+            title="Save Panel Configuration",
+            defaultextension=".yaml",
+            initialfile="current_view_settings.yaml",
+            filetypes=[
+                ("YAML files", "*.yaml"),
+                ("YAML files", "*.yml"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if not filepath:
+            return
+        
+        try:
+            # Use custom filename
+            settings_manager = PanelSettingsManager(settings_file=filepath)
+            settings_data = self.collect_panel_settings()
+            settings_manager.save_panel_settings(
+                settings_data['panels'],
+                settings_data['variable_colors']
+            )
+            messagebox.showinfo("Success", f"Panel settings saved to:\n{filepath}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save panel settings:\n{e}")
+    
+    def load_panel_appearance(self):
+        """Load and apply panel appearance from YAML file."""
+        # Ask user for filename
+        filepath = filedialog.askopenfilename(
+            title="Load Panel Configuration",
+            initialfile="current_view_settings.yaml",
+            filetypes=[
+                ("YAML files", "*.yaml"),
+                ("YAML files", "*.yml"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if not filepath:
+            return
+        
+        try:
+            # Use selected filename
+            settings_manager = PanelSettingsManager(settings_file=filepath)
+            settings_data = settings_manager.load_panel_settings()
+            
+            if settings_data is None:
+                messagebox.showwarning("Not Found", f"No view settings found in:\n{filepath}")
+                return
+            
+            panels_config = settings_data.get('panels', [])
+            variable_colors = settings_data.get('variable_colors', {})
+            
+            # Apply variable colors to plot_config and color buttons
+            for key_str, color in variable_colors.items():
+                try:
+                    source, z, var = key_str.split('|')
+                    
+                    # Try to convert z back to number if it was originally a number
+                    try:
+                        # Try int first
+                        if '.' not in z:
+                            z = int(z)
+                        else:
+                            z = float(z)
+                    except ValueError:
+                        # Keep as string if conversion fails
+                        pass
+                    
+                    key = (source, z, var)
+                    
+                    if key in self._plot_config:
+                        # Update color in config
+                        self._plot_config[key]['color'] = color
+                        
+                        # Update color button if it exists
+                        if 'color_btn' in self._plot_config[key]:
+                            self._plot_config[key]['color_btn'].config(bg=color)
+                except ValueError:
+                    print(f"Warning: Invalid color key format: {key_str}")
+                    continue
+            
+            # Apply panel settings
+            for panel_info in panels_config:
+                panel_idx = panel_info['panel_index']
+                if panel_idx >= len(self.axes):
+                    continue
+                
+                # Restore panel name
+                panel_name = panel_info.get('name', f'Panel {panel_idx + 1}')
+                self._panel_name_vars[panel_idx].set(panel_name)
+                
+                # Update panel ylabel
+                self.axes[panel_idx].set_ylabel(panel_name)
+                
+                # Restore y-axis limits
+                if panel_info.get('y_axis_locked', False) and panel_info.get('y_min') is not None:
+                    self._y_lock_vars[panel_idx].set(True)
+                    self._y_min_vars[panel_idx].set(str(panel_info['y_min']))
+                    self._y_max_vars[panel_idx].set(str(panel_info['y_max']))
+                    self.axes[panel_idx].set_ylim(panel_info['y_min'], panel_info['y_max'])
+                else:
+                    self._y_lock_vars[panel_idx].set(False)
+            
+            # Update plotted line colors
+            for key_str, color in variable_colors.items():
+                try:
+                    source, z, var = key_str.split('|')
+                    
+                    # Try to convert z back to number
+                    try:
+                        if '.' not in z:
+                            z = int(z)
+                        else:
+                            z = float(z)
+                    except ValueError:
+                        pass
+                    
+                    key = (source, z, var)
+                    
+                    if key in self._plot_config:
+                        # Update plotted lines if they exist
+                        for p_idx in range(self._num_panels):
+                            line_key = (source, z, var, p_idx)
+                            if line_key in self._plot_lines:
+                                artists = self._plot_lines[line_key]
+                                if artists and len(artists) > 0 and artists[0] is not None:
+                                    artists[0].set_color(color)
+                except ValueError:
+                    continue
+            
+            # Apply locked y-ranges after plotting
+            self._apply_locked_y_ranges()
+            
+            # Update time controls
+            self._update_time_slider_from_axes()
+            self._update_window_controls_from_axes()
+            
+            # Compute time bounds before formatting
+            self._compute_time_bounds()
+            
+            # Reinitialize span selectors
+            self._init_span_selectors()
+            
+            # Apply datetime formatting to x-axis after bounds are computed
+            self._apply_datetime_formatting()
+            
+            # Force canvas update
+            self.canvas.draw()
+            
+            messagebox.showinfo("Success", f"View settings loaded from:\n{filepath}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load view settings:\n{e}")
+
     @property
     def manager(self) -> DatasetManager:
         """Access the underlying DatasetManager."""
