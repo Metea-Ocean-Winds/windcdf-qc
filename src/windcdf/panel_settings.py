@@ -24,7 +24,7 @@ class PanelSettingsManager:
                 Format: "source|z|variable": "#hexcolor"
         """
         settings = {
-            'version': '1.0',
+            'version': '0.1.1',
             'panels': panels_config,
             'variable_colors': variable_colors
         }

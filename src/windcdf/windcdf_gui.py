@@ -1293,7 +1293,7 @@ class WindCDF_GUI(tk.Frame):
         
         # Add metadata about QC modification
         ds.attrs["qc_modified"] = pd.Timestamp.now().isoformat()
-        ds.attrs["qc_tool"] = "WindCDF 0.1.0"
+        ds.attrs["qc_tool"] = "WindCDF 0.1.1"
         if save_only_selected_vars:
             ds.attrs["qc_filtered"] = "Only selected variables and heights"
         
