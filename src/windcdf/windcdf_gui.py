@@ -1034,6 +1034,7 @@ class WindCDF_GUI(tk.Frame):
             self._show_selection_dialog()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load dataset:\n{e}")
+
     def _save_dataset_to_file(self):
         """Open dialog to select dataset and save it with QC modifications."""
         # Get list of loaded datasets
@@ -1052,6 +1053,14 @@ class WindCDF_GUI(tk.Frame):
             if selected_dataset is None:
                 return
         
+        # Ask user if they want to save only selected variables
+        save_only_selected = messagebox.askyesno(
+            "Save Options",
+            "Do you want to save only the variables and heights you selected?\n\n"
+            "Yes: Save only variables/heights from 'Confirm Selection'\n"
+            "No: Save all variables in the dataset"
+        )
+        
         # Get save file path
         filepath = filedialog.asksaveasfilename(
             title="Save Dataset",
@@ -1067,10 +1076,11 @@ class WindCDF_GUI(tk.Frame):
             return
         
         try:
-            self._save_dataset_with_qc(selected_dataset, filepath)
+            self._save_dataset_with_qc(selected_dataset, filepath, save_only_selected_vars=save_only_selected)
             messagebox.showinfo("Success", f"Dataset saved to:\n{filepath}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save dataset:\n{e}")
+
     
     def _show_dataset_selection_dialog(self, dataset_names: list) -> str | None:
         """Show a dialog to select which dataset to save."""
@@ -1116,8 +1126,20 @@ class WindCDF_GUI(tk.Frame):
         self.wait_window(dialog)
         return result["selected"]
     
-    def _save_dataset_with_qc(self, dataset_name: str, filepath: str):
-        """Save dataset with updated QC flags from cache."""
+    def _save_dataset_with_qc(self, dataset_name: str, filepath: str, save_only_selected_vars: bool = False):
+        """Save dataset with updated QC flags from cache.
+        
+        Parameters
+        ----------
+        dataset_name : str
+            Name of the dataset to save
+        filepath : str
+            Output file path
+        save_only_selected_vars : bool, optional
+            If True, save only variables and heights that were selected through
+            the selection dialog (present in self._user_selections).
+            Default is False (save all variables).
+        """
         # Get the original dataset
         ds = self._manager.datasets[dataset_name].copy(deep=True)
         ds_info = self._manager.get_dataset_info(dataset_name)
@@ -1152,9 +1174,131 @@ class WindCDF_GUI(tk.Frame):
                 for series_val in series_values:
                     self._update_qc_for_source(ds, source, shape_type, series_dim, source_dim, series_val)
         
+        # Filter variables if requested
+        if save_only_selected_vars:
+            # Build set of selected variables and heights from user_selections
+            selected_vars_heights = set()
+            
+            for source, z_vars in self._user_selections.items():
+                for z, var_list in z_vars.items():
+                    for var in var_list:
+                        # Add the variable (which might be base or _qcflag)
+                        selected_vars_heights.add((source, z, var))
+            
+            # Determine which variables to keep based on dataset structure
+            all_vars = list(ds.data_vars)
+            vars_to_keep = set()
+            
+            if shape_type == "time_only":
+                # For time-only datasets, keep variables that match any selection
+                source_name = ds.attrs.get("source", dataset_name)
+                for var in all_vars:
+                    # Check if this variable was selected
+                    var_selected = False
+                    for (sel_source, sel_z, sel_var) in selected_vars_heights:
+                        if sel_source == source_name and sel_var == var:
+                            var_selected = True
+                            break
+                    
+                    if var_selected:
+                        vars_to_keep.add(var)
+                        # Also keep its QC flag if it exists
+                        if not var.endswith("_qcflag"):
+                            qc_var = f"{var}_qcflag"
+                            if qc_var in all_vars:
+                                vars_to_keep.add(qc_var)
+            
+            elif shape_type == "time_plus_1":
+                if series_dim == "source":
+                    # Source dimension - need to filter by source and variable
+                    for var in all_vars:
+                        var_selected = False
+                        for (sel_source, sel_z, sel_var) in selected_vars_heights:
+                            if sel_var == var:
+                                var_selected = True
+                                break
+                        
+                        if var_selected:
+                            vars_to_keep.add(var)
+                            # Also keep its QC flag if it exists
+                            if not var.endswith("_qcflag"):
+                                qc_var = f"{var}_qcflag"
+                                if qc_var in all_vars:
+                                    vars_to_keep.add(qc_var)
+                else:
+                    # Height/level dimension - need to slice by series values
+                    source_name = ds.attrs.get("source", dataset_name)
+                    selected_series_vals = set()
+                    
+                    for (sel_source, sel_z, sel_var) in selected_vars_heights:
+                        if sel_source == source_name:
+                            selected_series_vals.add(sel_z)
+                    
+                    if selected_series_vals:
+                        # Slice dataset to only include selected series values
+                        ds = ds.sel({series_dim: list(selected_series_vals)})
+                    
+                    # Keep all variables that were selected
+                    for var in all_vars:
+                        var_selected = False
+                        for (sel_source, sel_z, sel_var) in selected_vars_heights:
+                            if sel_source == source_name and sel_var == var:
+                                var_selected = True
+                                break
+                        
+                        if var_selected:
+                            vars_to_keep.add(var)
+                            # Also keep its QC flag if it exists
+                            if not var.endswith("_qcflag"):
+                                qc_var = f"{var}_qcflag"
+                                if qc_var in all_vars:
+                                    vars_to_keep.add(qc_var)
+            
+            else:  # time_plus_2
+                # Need to filter both dimensions
+                selected_sources = set()
+                selected_series_vals = set()
+                
+                for (sel_source, sel_z, sel_var) in selected_vars_heights:
+                    selected_sources.add(sel_source)
+                    selected_series_vals.add(sel_z)
+                
+                if selected_sources and selected_series_vals:
+                    # Slice dataset to only include selected sources and series values
+                    ds = ds.sel({
+                        source_dim: list(selected_sources),
+                        series_dim: list(selected_series_vals)
+                    })
+                
+                # Keep all variables that were selected
+                for var in all_vars:
+                    var_selected = False
+                    for (sel_source, sel_z, sel_var) in selected_vars_heights:
+                        if sel_var == var:
+                            var_selected = True
+                            break
+                    
+                    if var_selected:
+                        vars_to_keep.add(var)
+                        # Also keep its QC flag if it exists
+                        if not var.endswith("_qcflag"):
+                            qc_var = f"{var}_qcflag"
+                            if qc_var in all_vars:
+                                vars_to_keep.add(qc_var)
+            
+            # Drop unselected variables
+            vars_to_drop = [var for var in ds.data_vars if var not in vars_to_keep]
+            if vars_to_drop:
+                ds = ds.drop_vars(vars_to_drop)
+        
         # Add metadata about QC modification
         ds.attrs["qc_modified"] = pd.Timestamp.now().isoformat()
         ds.attrs["qc_tool"] = "WindCDF 0.1.0"
+        if save_only_selected_vars:
+            ds.attrs["qc_filtered"] = "Only selected variables and heights"
+        
+        # Save to file
+        ds.to_netcdf(filepath)
         
         # Save to file
         ds.to_netcdf(filepath)
