@@ -332,6 +332,7 @@ class WindCDF_GUI(tk.Frame):
                 width=3
             ).pack(side=tk.LEFT, padx=2)
     
+
     def _build_time_controls(self, parent):
         """Build time navigation and zoom controls."""
         time_ctrl = tk.Frame(parent)
@@ -376,20 +377,24 @@ class WindCDF_GUI(tk.Frame):
         # Separator
         ttk.Separator(time_ctrl, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
         
-        # Window % controls
-        tk.Label(time_ctrl, text="Zoom %:", font=("Arial", 8)).pack(side=tk.LEFT, padx=2)
+        # Window % controls - logarithmic scale for better precision
+        tk.Label(time_ctrl, text="Zoom:", font=("Arial", 8)).pack(side=tk.LEFT, padx=2)
         
         self._window_slider = tk.Scale(
             time_ctrl,
-            from_=1,
+            from_=0,
             to=100,
             orient=tk.HORIZONTAL,
-            showvalue=True,
+            showvalue=False,
             command=self._on_window_slider_move,
             length=100
         )
         self._window_slider.set(100)
         self._window_slider.pack(side=tk.LEFT, padx=2)
+        
+        # Zoom percentage label
+        self._zoom_label = tk.Label(time_ctrl, text="100%", font=("Arial", 8), width=8)
+        self._zoom_label.pack(side=tk.LEFT, padx=2)
         
         self._window_entry = tk.Entry(time_ctrl, width=6, textvariable=self._window_var, font=("Arial", 8))
         self._window_entry.pack(side=tk.LEFT, padx=2)
@@ -401,6 +406,116 @@ class WindCDF_GUI(tk.Frame):
             font=("Arial", 8),
             width=3
         ).pack(side=tk.LEFT, padx=2)
+
+    def _apply_quick_zoom(self, days: float | None):
+        """Apply quick zoom to show a specific number of days, or all data."""
+        if self._time_min_num is None or self._time_max_num is None:
+            self._compute_time_bounds()
+            if self._time_min_num is None:
+                return
+        
+        span_global = self._time_max_num - self._time_min_num
+        if span_global <= 0:
+            return
+        
+        if days is None:
+            # Show all data
+            frac = 1.0
+        else:
+            # Calculate fraction based on days
+            # matplotlib date numbers are in days
+            frac = days / span_global
+            frac = min(frac, 1.0)
+        
+        self._apply_window_fraction(frac)
+        
+        # Update slider and label
+        slider_val = self._fraction_to_slider(frac)
+        self._window_slider.set(slider_val)
+        self._update_zoom_label(frac)
+        
+
+    def _slider_to_fraction(self, slider_value: float) -> float:
+        """Convert slider value (0-100) to fraction using logarithmic scale.
+        
+        Allows fine control at small zoom levels:
+        - slider 0 -> 0.0001 (0.01% ~ 2.6 hours for 3 years)
+        - slider 50 -> ~0.01 (1% ~ 11 days for 3 years)
+        - slider 100 -> 1.0 (100%)
+        """
+        if slider_value >= 100:
+            return 1.0
+        if slider_value <= 0:
+            return 0.0001
+        
+        import math
+        # Logarithmic mapping: slider 0-100 -> fraction 0.0001 to 1.0
+        exponent = (slider_value / 100.0) * 4.0 - 4.0
+        return 10 ** exponent
+    
+    def _fraction_to_slider(self, fraction: float) -> int:
+        """Convert fraction to slider value (0-100) using logarithmic scale."""
+        import math
+        if fraction >= 1.0:
+            return 100
+        if fraction <= 0.0001:
+            return 0
+        
+        exponent = math.log10(fraction)
+        slider_value = (exponent + 4.0) * 100.0 / 4.0
+        return int(max(0, min(100, slider_value)))
+    
+    def _update_zoom_label(self, frac: float):
+        """Update zoom label with appropriate precision."""
+        if frac >= 0.01:
+            self._zoom_label.config(text=f"{frac*100:.1f}%")
+        elif frac >= 0.001:
+            self._zoom_label.config(text=f"{frac*100:.2f}%")
+        else:
+            self._zoom_label.config(text=f"{frac*100:.3f}%")
+
+    def _on_window_slider_move(self, value):
+        """Slider callback: value = 0..100, mapped logarithmically."""
+        # Skip if no data loaded yet
+        if not self._source_data_cache:
+            return
+        
+        try:
+            slider_val = float(value)
+        except ValueError:
+            return
+        
+        frac = self._slider_to_fraction(slider_val)
+        self._update_zoom_label(frac)
+        self._apply_window_fraction(frac)
+
+    def _update_window_controls_from_axes(self):
+        """Sync window slider and entry with current window width."""
+        if self._time_min_num is None or self._time_max_num is None:
+            self._compute_time_bounds()
+        if self._time_min_num is None or self._time_max_num is None:
+            return
+        
+        span_global = self._time_max_num - self._time_min_num
+        if span_global <= 0:
+            return
+        
+        x0, x1 = self.axes[0].get_xlim()
+        window_span = x1 - x0
+        if window_span <= 0:
+            return
+        
+        frac = window_span / span_global
+        frac = max(1e-6, min(1.0, frac))
+        
+        # Update slider using logarithmic conversion
+        slider_val = self._fraction_to_slider(frac)
+        self._window_slider.set(slider_val)
+        
+        # Update zoom label
+        self._update_zoom_label(frac)
+        
+        self._window_var.set(f"{frac:.6g}")
     
     # ---------- PLOT FORMATTING HELPERS ----------
     
@@ -2078,135 +2193,87 @@ class WindCDF_GUI(tk.Frame):
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save panel settings:\n{e}")
     
+    
     def load_panel_appearance(self):
-        """Load and apply panel appearance from YAML file."""
-        # Ask user for filename
+        """Load panel appearance settings from file."""
         filepath = filedialog.askopenfilename(
             title="Load Panel Configuration",
-            initialfile="current_view_settings.yaml",
-            filetypes=[
-                ("YAML files", "*.yaml"),
-                ("YAML files", "*.yml"),
-                ("All files", "*.*")
-            ]
+            filetypes=[("YAML files", "*.yaml"), ("All files", "*.*")]
         )
         
         if not filepath:
             return
         
         try:
-            # Use selected filename
-            settings_manager = PanelSettingsManager(settings_file=filepath)
-            settings_data = settings_manager.load_panel_settings()
+            manager = PanelSettingsManager(filepath)
+            settings = manager.load_panel_settings()
             
-            if settings_data is None:
-                messagebox.showwarning("Not Found", f"No view settings found in:\n{filepath}")
+            if not settings:
+                messagebox.showwarning("Load Settings", "No settings found in file.")
                 return
             
-            panels_config = settings_data.get('panels', [])
-            variable_colors = settings_data.get('variable_colors', {})
+            panels_config = settings.get('panels', [])
+            variable_colors = settings.get('variable_colors', {})
             
-            # Apply variable colors to plot_config and color buttons
+            # Apply panel settings (names, y-axis locks, ranges)
+            for panel_cfg in panels_config:
+                idx = panel_cfg.get('panel_index', 0)
+                if idx < len(self._panel_name_vars):
+                    self._panel_name_vars[idx].set(panel_cfg.get('name', f'Panel {idx+1}'))
+                
+                if idx < len(self._y_lock_vars):
+                    self._y_lock_vars[idx].set(panel_cfg.get('y_axis_locked', False))
+                    
+                    if panel_cfg.get('y_axis_locked', False):
+                        if 'y_min' in panel_cfg and idx < len(self._y_min_vars):
+                            self._y_min_vars[idx].set(str(panel_cfg['y_min']))
+                        if 'y_max' in panel_cfg and idx < len(self._y_max_vars):
+                            self._y_max_vars[idx].set(str(panel_cfg['y_max']))
+                        self._apply_y_range(idx)
+            
+            # Build lookup by (z, var) for partial matching
+            color_by_z_var: dict[tuple, str] = {}
             for key_str, color in variable_colors.items():
                 try:
-                    source, z, var = key_str.split('|')
-                    
-                    # Try to convert z back to number if it was originally a number
-                    try:
-                        # Try int first
-                        if '.' not in z:
-                            z = int(z)
-                        else:
-                            z = float(z)
-                    except ValueError:
-                        # Keep as string if conversion fails
-                        pass
-                    
-                    key = (source, z, var)
-                    
-                    if key in self._plot_config:
-                        # Update color in config
-                        self._plot_config[key]['color'] = color
-                        
-                        # Update color button if it exists
-                        if 'color_btn' in self._plot_config[key]:
-                            self._plot_config[key]['color_btn'].config(bg=color)
-                except ValueError:
-                    print(f"Warning: Invalid color key format: {key_str}")
-                    continue
-            
-            # Apply panel settings
-            for panel_info in panels_config:
-                panel_idx = panel_info['panel_index']
-                if panel_idx >= len(self.axes):
-                    continue
-                
-                # Restore panel name
-                panel_name = panel_info.get('name', f'Panel {panel_idx + 1}')
-                self._panel_name_vars[panel_idx].set(panel_name)
-                
-                # Update panel ylabel
-                self.axes[panel_idx].set_ylabel(panel_name)
-                
-                # Restore y-axis limits
-                if panel_info.get('y_axis_locked', False) and panel_info.get('y_min') is not None:
-                    self._y_lock_vars[panel_idx].set(True)
-                    self._y_min_vars[panel_idx].set(str(panel_info['y_min']))
-                    self._y_max_vars[panel_idx].set(str(panel_info['y_max']))
-                    self.axes[panel_idx].set_ylim(panel_info['y_min'], panel_info['y_max'])
-                else:
-                    self._y_lock_vars[panel_idx].set(False)
-            
-            # Update plotted line colors
-            for key_str, color in variable_colors.items():
-                try:
-                    source, z, var = key_str.split('|')
-                    
-                    # Try to convert z back to number
-                    try:
-                        if '.' not in z:
-                            z = int(z)
-                        else:
-                            z = float(z)
-                    except ValueError:
-                        pass
-                    
-                    key = (source, z, var)
-                    
-                    if key in self._plot_config:
-                        # Update plotted lines if they exist
-                        for p_idx in range(self._num_panels):
-                            line_key = (source, z, var, p_idx)
-                            if line_key in self._plot_lines:
-                                artists = self._plot_lines[line_key]
-                                if artists and len(artists) > 0 and artists[0] is not None:
-                                    artists[0].set_color(color)
+                    parts = key_str.split('|')
+                    if len(parts) == 3:
+                        saved_source, saved_z, saved_var = parts
+                        # Convert z to number if possible
+                        try:
+                            saved_z = float(saved_z) if '.' in saved_z else int(saved_z)
+                        except ValueError:
+                            pass
+                        color_by_z_var[(saved_z, saved_var)] = color
                 except ValueError:
                     continue
             
-            # Apply locked y-ranges after plotting
-            self._apply_locked_y_ranges()
+            # Apply colors to current plot_config
+            applied_count = 0
+            for key in self._plot_config.keys():
+                source, z, var = key
+                
+                # Try to find matching color by (z, var)
+                lookup_key = (z, var)
+                if lookup_key in color_by_z_var:
+                    color = color_by_z_var[lookup_key]
+                    self._plot_config[key]['color'] = color
+                    
+                    # Update color button if exists
+                    if 'color_btn' in self._plot_config[key]:
+                        self._plot_config[key]['color_btn'].config(bg=color)
+                    
+                    applied_count += 1
             
-            # Update time controls
-            self._update_time_slider_from_axes()
-            self._update_window_controls_from_axes()
+            # Refresh plot with new colors
+            self._update_plot()
             
-            # Compute time bounds before formatting
-            self._compute_time_bounds()
-            
-            # Reinitialize span selectors
-            self._init_span_selectors()
-            
-            # Apply datetime formatting to x-axis after bounds are computed
-            self._apply_datetime_formatting()
-            
-            # Force canvas update
-            self.canvas.draw()
-            
-            messagebox.showinfo("Success", f"View settings loaded from:\n{filepath}")
+            messagebox.showinfo(
+                "Load Settings", 
+                f"Panel configuration loaded.\nApplied {applied_count} color settings."
+            )
             
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load view settings:\n{e}")
+            messagebox.showerror("Error", f"Failed to load settings: {e}")
 
     @property
     def manager(self) -> DatasetManager:
