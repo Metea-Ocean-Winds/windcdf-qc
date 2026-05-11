@@ -2,6 +2,7 @@ import os
 import random
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, colorchooser
+from typing import Any
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -11,7 +12,6 @@ import xarray as xr
 import yaml
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.widgets import SpanSelector
-from typing import Any
 
 from datamanager import DatasetManager
 from panel_settings import PanelSettingsManager
@@ -34,18 +34,19 @@ class WindCDF_GUI(tk.Frame):
         self.master.rowconfigure(0, weight=1)
 
         self._manager = DatasetManager()
-        self._user_selections: dict[tuple[str, Any], dict] = {}
-        self._plot_config: dict = {}
+
+        self._user_selections: dict[str, dict[Any, list[str]]] = {}
+        self._plot_config: dict[tuple[str, Any, str], dict] = {}
         self._last_loaded_dataset: str | None = None
         self._dataset_count: int = 0
 
         self._pending_dataset: xr.Dataset | None = None
         self._pending_dataset_default_name: str | None = None
 
-        # (dataset_name, source) -> {"time": array, "vars": {var: {z: array}}}
-        self._source_data_cache: dict[tuple[str, Any], dict] = {}
+        # dataset_name -> {"time": array, "vars": {var: {z: array}}}
+        self._source_data_cache: dict[str, dict] = {}
 
-        # ((dataset_name, source), z, var, panel_idx) -> [line, scatter...]
+        # (dataset_name, z, var, panel_idx) -> [line, scatter...]
         self._plot_lines: dict[tuple, list] = {}
 
         self._settings = self._load_settings(None)
@@ -72,11 +73,11 @@ class WindCDF_GUI(tk.Frame):
         self._selection_patches: list = [None] * self._num_panels
         self._status_var = tk.StringVar()
 
-        # ((dataset_name, source), z, var) -> BooleanVar
-        self._qc_apply_vars: dict[tuple, tk.BooleanVar] = {}
+        # (dataset_name, z, var) -> BooleanVar
+        self._qc_apply_vars: dict[tuple[str, Any, str], tk.BooleanVar] = {}
 
-        # (dataset_name, source) -> var -> z -> backup array
-        self._last_qc_backup: dict[tuple[str, Any], dict[str, dict]] = {}
+        # dataset_name -> var -> z -> backup array
+        self._last_qc_backup: dict[str, dict[str, dict]] = {}
 
         self._status_mapping = self._build_status_mapping()
 
@@ -459,11 +460,7 @@ class WindCDF_GUI(tk.Frame):
         self._apply_window_fraction(frac)
 
     def _on_window_set(self):
-        """
-        Entry + Set button:
-        - If value <= 1, treat as fraction.
-        - If value > 1, treat as percent.
-        """
+        """Entry + Set button."""
         if not self._source_data_cache:
             return
 
@@ -491,8 +488,6 @@ class WindCDF_GUI(tk.Frame):
 
         self._apply_window_fraction(frac)
 
-    # ---------- PLOT FORMATTING HELPERS ----------
-
     def _apply_datetime_formatting(self):
         """Apply datetime formatting to all axes."""
         for ax in self.axes:
@@ -506,8 +501,6 @@ class WindCDF_GUI(tk.Frame):
             except Exception:
                 pass
 
-    # ---------- QC SELECTION HELPERS ----------
-
     def _select_all_for_qc(self):
         """Select all variable-height combinations for QC apply."""
         for var in self._qc_apply_vars.values():
@@ -517,8 +510,6 @@ class WindCDF_GUI(tk.Frame):
         """Deselect all variable-height combinations for QC apply."""
         for var in self._qc_apply_vars.values():
             var.set(False)
-
-    # ---------- SPAN SELECTION ----------
 
     def _init_span_selectors(self):
         """Initialize span selectors for each panel."""
@@ -582,8 +573,6 @@ class WindCDF_GUI(tk.Frame):
         self._btn_apply_status.config(state="disabled")
         self.canvas.draw_idle()
 
-    # ---------- QC STATUS APPLICATION ----------
-
     def _apply_status_to_selection(self):
         """Apply the selected QC status to selected variables in the selection."""
         if self._current_selection is None:
@@ -598,12 +587,12 @@ class WindCDF_GUI(tk.Frame):
         status_code = self._status_mapping[self._status_var.get()]
 
         active_keys = set()
-        for (source_key, z, var), config in self._plot_config.items():
+        for (dataset_name, z, var), config in self._plot_config.items():
             if var.endswith("_qcflag"):
                 continue
             if not any(config["panels"]):
                 continue
-            key = (source_key, z, var)
+            key = (dataset_name, z, var)
             if key in self._qc_apply_vars and self._qc_apply_vars[key].get():
                 active_keys.add(key)
 
@@ -617,13 +606,13 @@ class WindCDF_GUI(tk.Frame):
         self._last_qc_backup.clear()
         changes_made = 0
 
-        for source_key, z, var in active_keys:
+        for dataset_name, z, var in active_keys:
             qc_var = f"{var}_qcflag"
 
-            if source_key not in self._source_data_cache:
+            if dataset_name not in self._source_data_cache:
                 continue
 
-            source_cache = self._source_data_cache[source_key]
+            source_cache = self._source_data_cache[dataset_name]
 
             if qc_var not in source_cache["vars"] or z not in source_cache["vars"][qc_var]:
                 if var in source_cache["vars"] and z in source_cache["vars"][var]:
@@ -635,12 +624,12 @@ class WindCDF_GUI(tk.Frame):
             if qc_var not in source_cache["vars"] or z not in source_cache["vars"][qc_var]:
                 continue
 
-            if source_key not in self._last_qc_backup:
-                self._last_qc_backup[source_key] = {}
-            if var not in self._last_qc_backup[source_key]:
-                self._last_qc_backup[source_key][var] = {}
+            if dataset_name not in self._last_qc_backup:
+                self._last_qc_backup[dataset_name] = {}
+            if var not in self._last_qc_backup[dataset_name]:
+                self._last_qc_backup[dataset_name][var] = {}
 
-            self._last_qc_backup[source_key][var][z] = source_cache["vars"][qc_var][z].copy()
+            self._last_qc_backup[dataset_name][var][z] = source_cache["vars"][qc_var][z].copy()
 
             time = source_cache["time"]
             if np.issubdtype(time.dtype, np.datetime64):
@@ -666,11 +655,11 @@ class WindCDF_GUI(tk.Frame):
             messagebox.showinfo("Nothing to Undo", "No previous QC change to undo.")
             return
 
-        for source_key, vars_dict in self._last_qc_backup.items():
-            if source_key not in self._source_data_cache:
+        for dataset_name, vars_dict in self._last_qc_backup.items():
+            if dataset_name not in self._source_data_cache:
                 continue
 
-            source_cache = self._source_data_cache[source_key]
+            source_cache = self._source_data_cache[dataset_name]
 
             for var, z_dict in vars_dict.items():
                 qc_var = f"{var}_qcflag"
@@ -692,7 +681,7 @@ class WindCDF_GUI(tk.Frame):
         ylims = [ax.get_ylim() for ax in self.axes]
 
         for line_key, artists in list(self._plot_lines.items()):
-            source_key, z, var, panel_idx = line_key
+            dataset_name, z, var, panel_idx = line_key
 
             if len(artists) > 1 and artists[1] is not None:
                 artists[1].remove()
@@ -705,7 +694,7 @@ class WindCDF_GUI(tk.Frame):
             self._plot_lines[line_key] = [artists[0], None]
             artists = self._plot_lines[line_key]
 
-            cached = self._get_cached_data(source_key, z, var)
+            cached = self._get_cached_data(dataset_name, z, var)
             if cached is None:
                 continue
 
@@ -757,8 +746,6 @@ class WindCDF_GUI(tk.Frame):
 
         return scatters
 
-    # ---------- Y-RANGE METHODS ----------
-
     def _on_y_lock_toggle(self, panel_idx: int):
         """Handle toggling of the 'Lock y-range' checkbox for a panel."""
         locked = self._y_lock_vars[panel_idx].get()
@@ -800,16 +787,14 @@ class WindCDF_GUI(tk.Frame):
                 except ValueError:
                     pass
 
-    # ---------- TIME RANGE METHODS ----------
-
     def _compute_time_bounds(self):
         """Compute global time bounds in Matplotlib date numbers from cached data."""
         if not self._source_data_cache:
             return
 
         all_times = []
-        for source_cache in self._source_data_cache.values():
-            time = source_cache.get("time")
+        for dataset_cache in self._source_data_cache.values():
+            time = dataset_cache.get("time")
             if time is not None:
                 all_times.append(time)
 
@@ -899,11 +884,7 @@ class WindCDF_GUI(tk.Frame):
         self.canvas.draw_idle()
 
     def _shift_time_window(self, direction: int):
-        """
-        Shift the current time window left/right.
-        direction = -1 for left, +1 for right.
-        Step = 25% of current window width.
-        """
+        """Shift the current time window left/right."""
         if not self._source_data_cache:
             return
 
@@ -980,8 +961,6 @@ class WindCDF_GUI(tk.Frame):
         self._update_window_controls_from_axes()
         self._apply_locked_y_ranges()
         self.canvas.draw_idle()
-
-    # ---------- DATASET LOADING ----------
 
     def _load_dataset_from_file(self):
         """Open file dialog, load dataset, and show selection dialog."""
@@ -1087,31 +1066,18 @@ class WindCDF_GUI(tk.Frame):
         self.wait_window(dialog)
         return result["selected"]
 
-    def _make_source_key(self, dataset_name: str, source: Any) -> tuple[str, Any]:
-        """Build a stable key that preserves both dataset and source identity."""
-        return (dataset_name, source)
-
-    def _split_source_key(self, source_key: tuple[str, Any]) -> tuple[str, Any]:
-        """Return dataset name and raw source value from a source key."""
-        return source_key
-
-    def _format_source_label(self, source_key: tuple[str, Any]) -> str:
-        """Format a source key for display in the left panel."""
-        dataset_name, _source = source_key
-        return dataset_name
-
     def _show_selection_dialog(self, ds: xr.Dataset, default_name: str):
         """Open the selection dialog for a dataset before it is registered."""
         try:
             preview_manager = DatasetManager(time_dim=self._manager.time_dim)
             preview_manager.add_dataset(default_name, ds)
-            source_z_vars = preview_manager.get_nested_dict(default_name)
+            height_vars = preview_manager.get_nested_dict(default_name)
             qc_map = preview_manager.get_vars_with_qc_flags(default_name)
         except ValueError as e:
             messagebox.showerror("Validation Error", str(e))
             return
 
-        if not source_z_vars:
+        if not height_vars:
             messagebox.showinfo("Info", "No valid variables found in dataset")
             return
 
@@ -1122,7 +1088,7 @@ class WindCDF_GUI(tk.Frame):
 
         SelectionDialog(
             self,
-            source_z_vars,
+            height_vars,
             qc_map,
             self._handle_selection,
             show_clip_option=show_clip,
@@ -1168,26 +1134,23 @@ class WindCDF_GUI(tk.Frame):
         self._pending_dataset = None
         self._pending_dataset_default_name = None
 
-        for source, z_vars in chosen_items.items():
-            source_key = self._make_source_key(final_name, source)
+        if final_name not in self._user_selections:
+            self._user_selections[final_name] = {}
 
-            if source_key not in self._user_selections:
-                self._user_selections[source_key] = {}
+        for z, var_list in chosen_items.items():
+            if z not in self._user_selections[final_name]:
+                self._user_selections[final_name][z] = []
 
-            for z, var_list in z_vars.items():
-                if z not in self._user_selections[source_key]:
-                    self._user_selections[source_key][z] = []
+            for var in var_list:
+                if var not in self._user_selections[final_name][z]:
+                    self._user_selections[final_name][z].append(var)
 
-                for var in var_list:
-                    if var not in self._user_selections[source_key][z]:
-                        self._user_selections[source_key][z].append(var)
-
-                    key = (source_key, z, var)
-                    if key not in self._plot_config:
-                        self._plot_config[key] = {
-                            "color": self._random_color(),
-                            "panels": [False] * self._num_panels
-                        }
+                key = (final_name, z, var)
+                if key not in self._plot_config:
+                    self._plot_config[key] = {
+                        "color": self._random_color(),
+                        "panels": [False] * self._num_panels,
+                    }
 
         self._rebuild_variable_panel()
 
@@ -1199,9 +1162,8 @@ class WindCDF_GUI(tk.Frame):
 
             ds_info = self._manager._dataset_info[identifier]
             self._manager._nested_dicts[identifier] = self._manager._generate_nested_dict(
-                clipped_ds, ds_info, identifier
+                clipped_ds, ds_info
             )
-
         except Exception as e:
             messagebox.showwarning("Clipping Warning", f"Could not clip dataset: {e}")
 
@@ -1210,32 +1172,10 @@ class WindCDF_GUI(tk.Frame):
         ds_info = self._manager.get_dataset_info(dataset_name)
         shape_type = ds_info["shape_type"]
         series_dim = ds_info["series_dim"]
-        source_dim = ds_info["source_dim"]
 
         if shape_type == "time_only":
-            raw_source = ds.attrs.get("source", dataset_name)
-            source_entries = [(self._make_source_key(dataset_name, raw_source), raw_source)]
             series_values = ["all"]
-
-        elif shape_type == "time_plus_1":
-            if series_dim == "source":
-                raw_sources = [self._manager._to_python_type(v) for v in ds[series_dim].values]
-                source_entries = [
-                    (self._make_source_key(dataset_name, raw_source), raw_source)
-                    for raw_source in raw_sources
-                ]
-                series_values = ["all"]
-            else:
-                raw_source = ds.attrs.get("source", dataset_name)
-                source_entries = [(self._make_source_key(dataset_name, raw_source), raw_source)]
-                series_values = [self._manager._to_python_type(v) for v in ds[series_dim].values]
-
-        else:  # time_plus_2
-            raw_sources = [self._manager._to_python_type(v) for v in ds[source_dim].values]
-            source_entries = [
-                (self._make_source_key(dataset_name, raw_source), raw_source)
-                for raw_source in raw_sources
-            ]
+        else:
             series_values = [self._manager._to_python_type(v) for v in ds[series_dim].values]
 
         time_values = ds[self._manager.time_dim].values
@@ -1270,86 +1210,68 @@ class WindCDF_GUI(tk.Frame):
                     except Exception:
                         pass
 
-        for source_key, raw_source in source_entries:
-            if source_key not in self._source_data_cache:
-                self._source_data_cache[source_key] = {"time": time_values, "vars": {}}
-            else:
-                self._source_data_cache[source_key]["time"] = time_values
+        if dataset_name not in self._source_data_cache:
+            self._source_data_cache[dataset_name] = {"time": time_values, "vars": {}}
+        else:
+            self._source_data_cache[dataset_name]["time"] = time_values
 
-            for var in ds.data_vars:
-                if var not in self._source_data_cache[source_key]["vars"]:
-                    self._source_data_cache[source_key]["vars"][var] = {}
+        for var in ds.data_vars:
+            if var not in self._source_data_cache[dataset_name]["vars"]:
+                self._source_data_cache[dataset_name]["vars"][var] = {}
 
-                for series_val in series_values:
-                    if shape_type == "time_only":
-                        data = ds[var].values
-                        self._source_data_cache[source_key]["vars"][var]["all"] = data
-
-                    elif shape_type == "time_plus_1":
-                        if series_dim == "source":
-                            try:
-                                data = ds[var].sel({series_dim: raw_source}).values
-                                self._source_data_cache[source_key]["vars"][var]["all"] = data
-                            except Exception:
-                                pass
-                        else:
-                            try:
-                                data = ds[var].sel({series_dim: series_val}).values
-                                self._source_data_cache[source_key]["vars"][var][series_val] = data
-                            except Exception:
-                                pass
-
-                    else:  # time_plus_2
-                        try:
-                            data = ds[var].sel({source_dim: raw_source, series_dim: series_val}).values
-                            self._source_data_cache[source_key]["vars"][var][series_val] = data
-                        except Exception:
-                            pass
+            for series_val in series_values:
+                if shape_type == "time_only":
+                    data = ds[var].values
+                    self._source_data_cache[dataset_name]["vars"][var]["all"] = data
+                else:
+                    try:
+                        data = ds[var].sel({series_dim: series_val}).values
+                        self._source_data_cache[dataset_name]["vars"][var][series_val] = data
+                    except Exception:
+                        pass
 
         self._compute_time_bounds()
 
     def _get_cached_data(
         self,
-        source_key: tuple[str, Any],
+        dataset_name: str,
         z,
         var: str
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None] | None:
         """Get pre-extracted data from cache."""
-        if source_key not in self._source_data_cache:
+        if dataset_name not in self._source_data_cache:
             return None
 
-        source_cache = self._source_data_cache[source_key]
+        dataset_cache = self._source_data_cache[dataset_name]
 
-        if var not in source_cache["vars"] or z not in source_cache["vars"][var]:
+        if var not in dataset_cache["vars"] or z not in dataset_cache["vars"][var]:
             return None
 
-        time = source_cache["time"]
-        data = source_cache["vars"][var][z]
+        time = dataset_cache["time"]
+        data = dataset_cache["vars"][var][z]
 
         qc_var = f"{var}_qcflag"
         qc_data = None
-        if qc_var in source_cache["vars"] and z in source_cache["vars"][qc_var]:
-            qc_data = source_cache["vars"][qc_var][z]
+        if qc_var in dataset_cache["vars"] and z in dataset_cache["vars"][qc_var]:
+            qc_data = dataset_cache["vars"][qc_var][z]
 
         return time, data, qc_data
 
-    def _update_qc_for_source(
+    def _update_qc_for_dataset(
         self,
         ds: xr.Dataset,
-        source_key: tuple[str, Any],
+        dataset_name: str,
         shape_type: str,
         series_dim: str | None,
-        source_dim: str | None,
         series_val: str | int | float
     ):
-        """Update QC variables in dataset for a specific dataset/source key and series value."""
-        if source_key not in self._source_data_cache:
+        """Update QC variables in dataset for a specific dataset and series value."""
+        if dataset_name not in self._source_data_cache:
             return
 
-        _dataset_name, source = self._split_source_key(source_key)
-        source_cache = self._source_data_cache[source_key]
+        dataset_cache = self._source_data_cache[dataset_name]
 
-        for var_name, series_dict in source_cache["vars"].items():
+        for var_name, series_dict in dataset_cache["vars"].items():
             if not var_name.endswith("_qcflag"):
                 continue
 
@@ -1370,46 +1292,27 @@ class WindCDF_GUI(tk.Frame):
 
                 ds[var_name].attrs["long_name"] = f"QC flag for {base_var}"
                 ds[var_name].attrs["flag_values"] = list(self._status_mapping_config.keys())
-                ds[var_name].attrs["flag_meanings"] = " ".join([
-                    info["label"].replace(" ", "_")
-                    for info in self._status_mapping_config.values()
-                ])
+                ds[var_name].attrs["flag_meanings"] = " ".join(
+                    [info["label"].replace(" ", "_") for info in self._status_mapping_config.values()]
+                )
 
             try:
                 dims = ds[var_name].dims
 
                 if shape_type == "time_only":
                     ds[var_name].values[:] = qc_array
-
-                elif shape_type == "time_plus_1":
-                    if series_dim == "source":
-                        source_idx = list(ds[series_dim].values).index(source)
-                        if series_dim == dims[0]:
-                            ds[var_name].values[source_idx, :] = qc_array
-                        else:
-                            ds[var_name].values[:, source_idx] = qc_array
+                else:
+                    if series_dim is None:
+                        ds[var_name].values[:] = qc_array
                     else:
-                        if series_val == "all":
-                            ds[var_name].values[:] = qc_array
+                        series_idx = list(ds[series_dim].values).index(series_val)
+                        if series_dim == dims[0]:
+                            ds[var_name].values[series_idx, :] = qc_array
                         else:
-                            series_idx = list(ds[series_dim].values).index(series_val)
-                            if series_dim == dims[0]:
-                                ds[var_name].values[series_idx, :] = qc_array
-                            else:
-                                ds[var_name].values[:, series_idx] = qc_array
-
-                else:  # time_plus_2
-                    source_idx = list(ds[source_dim].values).index(source)
-                    series_idx = list(ds[series_dim].values).index(series_val)
-
-                    dim_order = {d: i for i, d in enumerate(dims)}
-                    slices = [slice(None)] * len(dims)
-                    slices[dim_order[source_dim]] = source_idx
-                    slices[dim_order[series_dim]] = series_idx
-                    ds[var_name].values[tuple(slices)] = qc_array
+                            ds[var_name].values[:, series_idx] = qc_array
 
             except (ValueError, IndexError) as e:
-                print(f"Warning: Could not update {var_name} for source={source}, series={series_val}: {e}")
+                print(f"Warning: Could not update {var_name} for dataset={dataset_name}, series={series_val}: {e}")
 
     def _save_dataset_with_qc(self, dataset_name: str, filepath: str, save_only_selected_vars: bool = False):
         """Save dataset with updated QC flags from cache."""
@@ -1417,130 +1320,44 @@ class WindCDF_GUI(tk.Frame):
         ds_info = self._manager.get_dataset_info(dataset_name)
         shape_type = ds_info["shape_type"]
         series_dim = ds_info["series_dim"]
-        source_dim = ds_info["source_dim"]
 
         if shape_type == "time_only":
-            raw_source = ds.attrs.get("source", dataset_name)
-            source_key = self._make_source_key(dataset_name, raw_source)
-            self._update_qc_for_source(ds, source_key, shape_type, None, None, "all")
-
-        elif shape_type == "time_plus_1":
-            if series_dim == "source":
-                source_values = [self._manager._to_python_type(v) for v in ds[series_dim].values]
-                for raw_source in source_values:
-                    source_key = self._make_source_key(dataset_name, raw_source)
-                    self._update_qc_for_source(ds, source_key, shape_type, series_dim, None, "all")
-            else:
-                raw_source = ds.attrs.get("source", dataset_name)
-                source_key = self._make_source_key(dataset_name, raw_source)
-                series_values = [self._manager._to_python_type(v) for v in ds[series_dim].values]
-                for series_val in series_values:
-                    self._update_qc_for_source(ds, source_key, shape_type, series_dim, None, series_val)
-
-        else:  # time_plus_2
-            source_values = [self._manager._to_python_type(v) for v in ds[source_dim].values]
+            self._update_qc_for_dataset(ds, dataset_name, shape_type, None, "all")
+        else:
             series_values = [self._manager._to_python_type(v) for v in ds[series_dim].values]
-            for raw_source in source_values:
-                source_key = self._make_source_key(dataset_name, raw_source)
-                for series_val in series_values:
-                    self._update_qc_for_source(ds, source_key, shape_type, series_dim, source_dim, series_val)
+            for series_val in series_values:
+                self._update_qc_for_dataset(ds, dataset_name, shape_type, series_dim, series_val)
 
         if save_only_selected_vars:
             selected_vars_heights = set()
 
-            for source_key, z_vars in self._user_selections.items():
-                ds_name_for_key, raw_source_for_key = self._split_source_key(source_key)
-                if ds_name_for_key != dataset_name:
+            for ds_name, z_vars in self._user_selections.items():
+                if ds_name != dataset_name:
                     continue
 
                 for z, var_list in z_vars.items():
                     for var in var_list:
-                        selected_vars_heights.add((raw_source_for_key, z, var))
+                        selected_vars_heights.add((z, var))
 
             all_vars = list(ds.data_vars)
             vars_to_keep = set()
 
             if shape_type == "time_only":
-                raw_source = ds.attrs.get("source", dataset_name)
                 for var in all_vars:
-                    var_selected = False
-                    for sel_source, _sel_z, sel_var in selected_vars_heights:
-                        if sel_source == raw_source and sel_var == var:
-                            var_selected = True
-                            break
-
+                    var_selected = any(sel_var == var for _sel_z, sel_var in selected_vars_heights)
                     if var_selected:
                         vars_to_keep.add(var)
                         if not var.endswith("_qcflag"):
                             qc_var = f"{var}_qcflag"
                             if qc_var in all_vars:
                                 vars_to_keep.add(qc_var)
-
-            elif shape_type == "time_plus_1":
-                if series_dim == "source":
-                    selected_sources = {sel_source for sel_source, _sel_z, _sel_var in selected_vars_heights}
-                    if selected_sources:
-                        ds = ds.sel({series_dim: list(selected_sources)})
-
-                    for var in all_vars:
-                        var_selected = False
-                        for _sel_source, _sel_z, sel_var in selected_vars_heights:
-                            if sel_var == var:
-                                var_selected = True
-                                break
-
-                        if var_selected:
-                            vars_to_keep.add(var)
-                            if not var.endswith("_qcflag"):
-                                qc_var = f"{var}_qcflag"
-                                if qc_var in all_vars:
-                                    vars_to_keep.add(qc_var)
-                else:
-                    raw_source = ds.attrs.get("source", dataset_name)
-                    selected_series_vals = set()
-
-                    for sel_source, sel_z, _sel_var in selected_vars_heights:
-                        if sel_source == raw_source:
-                            selected_series_vals.add(sel_z)
-
-                    if selected_series_vals:
-                        ds = ds.sel({series_dim: list(selected_series_vals)})
-
-                    for var in all_vars:
-                        var_selected = False
-                        for sel_source, _sel_z, sel_var in selected_vars_heights:
-                            if sel_source == raw_source and sel_var == var:
-                                var_selected = True
-                                break
-
-                        if var_selected:
-                            vars_to_keep.add(var)
-                            if not var.endswith("_qcflag"):
-                                qc_var = f"{var}_qcflag"
-                                if qc_var in all_vars:
-                                    vars_to_keep.add(qc_var)
-
-            else:  # time_plus_2
-                selected_sources = set()
-                selected_series_vals = set()
-
-                for sel_source, sel_z, _sel_var in selected_vars_heights:
-                    selected_sources.add(sel_source)
-                    selected_series_vals.add(sel_z)
-
-                if selected_sources and selected_series_vals:
-                    ds = ds.sel({
-                        source_dim: list(selected_sources),
-                        series_dim: list(selected_series_vals)
-                    })
+            else:
+                selected_series_vals = {sel_z for sel_z, _sel_var in selected_vars_heights}
+                if selected_series_vals:
+                    ds = ds.sel({series_dim: list(selected_series_vals)})
 
                 for var in all_vars:
-                    var_selected = False
-                    for _sel_source, _sel_z, sel_var in selected_vars_heights:
-                        if sel_var == var:
-                            var_selected = True
-                            break
-
+                    var_selected = any(sel_var == var for _sel_z, sel_var in selected_vars_heights)
                     if var_selected:
                         vars_to_keep.add(var)
                         if not var.endswith("_qcflag"):
@@ -1570,10 +1387,10 @@ class WindCDF_GUI(tk.Frame):
 
         row = 0
 
-        sources_with_data = []
-        for source_key in sorted(self._user_selections.keys(), key=self._format_source_label):
+        datasets_with_data = []
+        for dataset_name in sorted(self._user_selections.keys()):
             has_variables = False
-            for z, var_list in self._user_selections[source_key].items():
+            for z, var_list in self._user_selections[dataset_name].items():
                 for var in var_list:
                     if not var.endswith("_qcflag"):
                         has_variables = True
@@ -1581,17 +1398,17 @@ class WindCDF_GUI(tk.Frame):
                 if has_variables:
                     break
             if has_variables:
-                sources_with_data.append(source_key)
+                datasets_with_data.append(dataset_name)
 
-        for source_key in sources_with_data:
-            source_label = self._format_source_label(source_key)
+        for dataset_name in datasets_with_data:
+            dataset_label = dataset_name
 
             src_frame = tk.Frame(self._var_inner_frame, relief="ridge", borderwidth=1, bg="#f0f0f0")
             src_frame.grid(row=row, column=0, columnspan=5 + self._num_panels, sticky="ew", pady=(10, 2), padx=(0, 5))
 
             src_label = tk.Label(
                 src_frame,
-                text=f"{source_label} ",
+                text=f"{dataset_label} ",
                 font=("Arial", 10, "bold"),
                 anchor="w",
                 bg="#f0f0f0"
@@ -1603,14 +1420,14 @@ class WindCDF_GUI(tk.Frame):
                 text="?",
                 width=2,
                 font=("Arial", 7),
-                command=lambda s=source_key: self._show_source_info(s),
+                command=lambda d=dataset_name: self._show_dataset_info(d),
                 bg="#e0e0e0"
             )
             src_info_btn.pack(side=tk.LEFT, padx=5)
 
             row += 1
 
-            z_vars = self._user_selections[source_key]
+            z_vars = self._user_selections[dataset_name]
 
             all_vars = sorted(set(
                 v for var_list in z_vars.values()
@@ -1635,7 +1452,7 @@ class WindCDF_GUI(tk.Frame):
                     text="?",
                     width=2,
                     font=("Arial", 7),
-                    command=lambda s=source_key, v=var: self._show_variable_info(s, v)
+                    command=lambda d=dataset_name, v=var: self._show_variable_info(d, v)
                 )
                 var_info_btn.pack(side=tk.LEFT, padx=5)
 
@@ -1656,7 +1473,7 @@ class WindCDF_GUI(tk.Frame):
                 heights_with_var = sorted([z for z, vlist in z_vars.items() if var in vlist])
 
                 for z in heights_with_var:
-                    key = (source_key, z, var)
+                    key = (dataset_name, z, var)
                     config = self._plot_config.get(key, {
                         "color": self._random_color(),
                         "panels": [False] * self._num_panels
@@ -1696,22 +1513,19 @@ class WindCDF_GUI(tk.Frame):
 
                     row += 1
 
-    def _show_source_info(self, source_key: tuple[str, Any]):
-        """Show a popup with source/dataset attributes."""
-        dataset_name, source = self._split_source_key(source_key)
+    def _show_dataset_info(self, dataset_name: str):
+        """Show a popup with dataset attributes."""
         attrs = {}
 
         if dataset_name in self._manager.datasets:
             ds = self._manager.datasets[dataset_name]
             attrs = dict(ds.attrs)
             attrs["_dataset_name"] = dataset_name
-            attrs["_source_name"] = str(source)
 
-        self._show_info_popup(f"Source: {self._format_source_label(source_key)}", attrs)
+        self._show_info_popup(f"Dataset: {dataset_name}", attrs)
 
-    def _show_variable_info(self, source_key: tuple[str, Any], var: str):
+    def _show_variable_info(self, dataset_name: str, var: str):
         """Show a popup with variable attributes."""
-        dataset_name, _source = self._split_source_key(source_key)
         attrs = {}
 
         if dataset_name in self._manager.datasets:
@@ -1771,7 +1585,7 @@ class WindCDF_GUI(tk.Frame):
 
     def _update_line_color(self, key, new_color):
         """Update only the color of existing lines without full redraw."""
-        source_key, z, var = key
+        dataset_name, z, var = key
 
         self._plot_config[key]["color"] = new_color
 
@@ -1779,7 +1593,7 @@ class WindCDF_GUI(tk.Frame):
             self._plot_config[key]["color_btn"].config(bg=new_color)
 
         for p_idx in range(self._num_panels):
-            line_key = (source_key, z, var, p_idx)
+            line_key = (dataset_name, z, var, p_idx)
             if line_key in self._plot_lines:
                 artists = self._plot_lines[line_key]
                 if artists and len(artists) > 0 and artists[0] is not None:
@@ -1794,8 +1608,8 @@ class WindCDF_GUI(tk.Frame):
 
     def _update_single_line(self, key, panel_idx, is_active):
         """Add or remove a single line instead of redrawing everything."""
-        source_key, z, var = key
-        line_key = (source_key, z, var, panel_idx)
+        dataset_name, z, var = key
+        line_key = (dataset_name, z, var, panel_idx)
 
         current_xlim = self.axes[0].get_xlim()
         has_existing_data = bool(self._plot_lines)
@@ -1809,9 +1623,9 @@ class WindCDF_GUI(tk.Frame):
             self.canvas.draw_idle()
             return
 
-        cached = self._get_cached_data(source_key, z, var)
+        cached = self._get_cached_data(dataset_name, z, var)
         if cached is None:
-            print(f"No cached data for {source_key}/{z}/{var}")
+            print(f"No cached data for {dataset_name}/{z}/{var}")
             return
 
         time, data, qc_data = cached
@@ -1869,7 +1683,7 @@ class WindCDF_GUI(tk.Frame):
         self._apply_datetime_formatting()
         self._plot_lines.clear()
 
-        for (source_key, z, var), config in self._plot_config.items():
+        for (dataset_name, z, var), config in self._plot_config.items():
             if var.endswith("_qcflag"):
                 continue
 
@@ -1878,7 +1692,7 @@ class WindCDF_GUI(tk.Frame):
                 continue
 
             color = config["color"]
-            cached = self._get_cached_data(source_key, z, var)
+            cached = self._get_cached_data(dataset_name, z, var)
 
             if cached is None:
                 continue
@@ -1895,7 +1709,7 @@ class WindCDF_GUI(tk.Frame):
                     if qc_data is not None:
                         scatters = self._create_qc_scatters(self.axes[p_idx], time, data, qc_data)
 
-                    line_key = (source_key, z, var, p_idx)
+                    line_key = (dataset_name, z, var, p_idx)
                     self._plot_lines[line_key] = [line] + scatters
 
     def collect_panel_settings(self) -> dict[str, Any]:
@@ -1923,10 +1737,9 @@ class WindCDF_GUI(tk.Frame):
             panels_config.append(panel_info)
 
         variable_colors = {}
-        for (source_key, z, var), config in self._plot_config.items():
+        for (dataset_name, z, var), config in self._plot_config.items():
             if not var.endswith("_qcflag"):
-                dataset_name, source = self._split_source_key(source_key)
-                key = f"{dataset_name}|{str(source)}|{z}|{var}"
+                key = f"{dataset_name}|{str(z)}|{var}"
                 variable_colors[key] = config["color"]
 
         return {
@@ -1999,23 +1812,22 @@ class WindCDF_GUI(tk.Frame):
 
             color_by_full_key: dict[tuple, str] = {}
             for key_str, color in variable_colors.items():
-                parts = key_str.split("|", 3)
-                if len(parts) != 4:
+                parts = key_str.split("|", 2)
+                if len(parts) != 3:
                     continue
 
-                saved_dataset, saved_source, saved_z, saved_var = parts
+                saved_dataset, saved_z, saved_var = parts
                 try:
                     parsed_z = float(saved_z) if "." in saved_z else int(saved_z)
                 except ValueError:
                     parsed_z = saved_z
 
-                color_by_full_key[(saved_dataset, saved_source, parsed_z, saved_var)] = color
+                color_by_full_key[(saved_dataset, parsed_z, saved_var)] = color
 
             applied_count = 0
             for key in self._plot_config.keys():
-                source_key, z, var = key
-                dataset_name, raw_source = source_key
-                lookup_key = (dataset_name, str(raw_source), z, var)
+                dataset_name, z, var = key
+                lookup_key = (dataset_name, z, var)
 
                 if lookup_key not in color_by_full_key:
                     continue

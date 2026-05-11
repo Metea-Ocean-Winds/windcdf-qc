@@ -1,12 +1,13 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
+from typing import Any
 
 
 class SelectionDialog(tk.Toplevel):
     def __init__(
         self,
         parent,
-        source_z_vars: dict,
+        height_vars: dict,
         qc_map: dict,
         on_confirm,
         show_clip_option: bool = False,
@@ -14,19 +15,18 @@ class SelectionDialog(tk.Toplevel):
         existing_dataset_names: set[str] | None = None,
     ):
         super().__init__(parent)
-        self._source_z_vars = source_z_vars
+        self._height_vars = height_vars
         self._qc_map = qc_map
         self._on_confirm = on_confirm
         self._show_clip_option = show_clip_option
         self._current_dataset_name = current_dataset_name
         self._existing_dataset_names = existing_dataset_names or set()
         self._dataset_name_var = tk.StringVar(value=current_dataset_name)
-        self._checkbox_vars: dict[str, dict[str, dict[str, tk.BooleanVar]]] = {}
+        self._checkbox_vars: dict[str, dict[Any, tk.BooleanVar]] = {}
         self._clip_var: tk.BooleanVar = tk.BooleanVar(value=True)
 
-        # Master controls for variables and heights per source
-        self._var_master_checkboxes: dict[str, dict[str, tk.BooleanVar]] = {}
-        self._height_master_checkboxes: dict[str, dict[str, tk.BooleanVar]] = {}
+        self._var_master_checkboxes: dict[str, tk.BooleanVar] = {}
+        self._height_master_checkboxes: dict[Any, tk.BooleanVar] = {}
 
         self._construct_dialog()
 
@@ -47,7 +47,6 @@ class SelectionDialog(tk.Toplevel):
             width=40
         ).pack(side="left", padx=(8, 0))
 
-        # Clip option at top (only for second+ datasets)
         if self._show_clip_option:
             clip_frame = tk.Frame(self)
             clip_frame.pack(fill="x", padx=10, pady=(10, 5))
@@ -72,7 +71,6 @@ class SelectionDialog(tk.Toplevel):
                 fg="gray"
             ).pack(side="left", padx=(5, 0))
 
-        # Select All / Unselect All buttons
         btn_top_frame = tk.Frame(self)
         btn_top_frame.pack(fill="x", padx=10, pady=5)
 
@@ -107,81 +105,67 @@ class SelectionDialog(tk.Toplevel):
         h_scrollbar.pack(side="bottom", fill="x")
         scroll_canvas.pack(side="left", fill="both", expand=True)
 
-        current_row = 0
-        for source, z_vars in self._source_z_vars.items():
-            if not z_vars:
-                continue
+        all_heights = sorted(self._height_vars.keys())
+        all_vars = sorted(set(var for var_list in self._height_vars.values() for var in var_list))
 
-            src_label = tk.Label(inner_frame, text=f"Source: {source}", font=("Arial", 11, "bold"))
-            src_label.grid(row=current_row, column=0, sticky="w", pady=(15, 5), columnspan=2)
-            current_row += 1
-
-            all_heights = sorted(z_vars.keys())
-            all_vars = sorted(set(v for var_list in z_vars.values() for v in var_list))
-
-            if not all_vars or not all_heights:
-                continue
-
-            self._checkbox_vars[source] = {}
-            self._var_master_checkboxes[source] = {}
-            self._height_master_checkboxes[source] = {}
-
+        if not all_heights or not all_vars:
+            tk.Label(inner_frame, text="No valid variables found in dataset.").pack(padx=10, pady=10)
+        else:
             tk.Label(inner_frame, text="Variable \\ Height", relief="ridge", width=18).grid(
-                row=current_row, column=0, sticky="nsew"
+                row=0, column=0, sticky="nsew"
             )
             tk.Label(inner_frame, text="All", relief="ridge", width=4).grid(
-                row=current_row, column=1, sticky="nsew"
+                row=0, column=1, sticky="nsew"
             )
 
-            for col_idx, h in enumerate(all_heights, start=2):
+            for col_idx, height in enumerate(all_heights, start=2):
                 height_master_var = tk.BooleanVar(value=True)
-                self._height_master_checkboxes[source][h] = height_master_var
+                self._height_master_checkboxes[height] = height_master_var
 
                 height_frame = tk.Frame(inner_frame, relief="ridge", borderwidth=1)
-                height_frame.grid(row=current_row, column=col_idx, sticky="nsew")
+                height_frame.grid(row=0, column=col_idx, sticky="nsew")
 
-                tk.Label(height_frame, text=str(h), width=8).pack()
+                tk.Label(height_frame, text=str(height), width=8).pack()
                 tk.Checkbutton(
                     height_frame,
                     variable=height_master_var,
-                    command=lambda s=source, ht=h: self._toggle_height(s, ht)
+                    command=lambda ht=height: self._toggle_height(ht)
                 ).pack()
 
-            current_row += 1
-
+            row = 1
             for var in all_vars:
                 tk.Label(inner_frame, text=var, relief="ridge", width=18, anchor="w").grid(
-                    row=current_row, column=0, sticky="nsew"
+                    row=row, column=0, sticky="nsew"
                 )
 
                 var_master_var = tk.BooleanVar(value=True)
-                self._var_master_checkboxes[source][var] = var_master_var
+                self._var_master_checkboxes[var] = var_master_var
                 tk.Checkbutton(
                     inner_frame,
                     variable=var_master_var,
-                    command=lambda s=source, v=var: self._toggle_variable(s, v)
-                ).grid(row=current_row, column=1, sticky="nsew")
+                    command=lambda v=var: self._toggle_variable(v)
+                ).grid(row=row, column=1, sticky="nsew")
 
-                self._checkbox_vars[source][var] = {}
+                self._checkbox_vars[var] = {}
 
-                for col_idx, h in enumerate(all_heights, start=2):
-                    is_valid = var in z_vars.get(h, [])
+                for col_idx, height in enumerate(all_heights, start=2):
+                    is_valid = var in self._height_vars.get(height, [])
 
                     if is_valid:
                         bool_var = tk.BooleanVar(value=True)
-                        self._checkbox_vars[source][var][h] = bool_var
+                        self._checkbox_vars[var][height] = bool_var
                         cb = tk.Checkbutton(
                             inner_frame,
                             variable=bool_var,
-                            command=lambda s=source: self._update_master_checkboxes(s)
+                            command=self._update_master_checkboxes
                         )
-                        cb.grid(row=current_row, column=col_idx, sticky="nsew")
+                        cb.grid(row=row, column=col_idx, sticky="nsew")
                     else:
                         tk.Label(inner_frame, text="-", relief="flat").grid(
-                            row=current_row, column=col_idx, sticky="nsew"
+                            row=row, column=col_idx, sticky="nsew"
                         )
 
-                current_row += 1
+                row += 1
 
         btn_frame = tk.Frame(self)
         btn_frame.pack(fill="x", padx=10, pady=10)
@@ -191,82 +175,79 @@ class SelectionDialog(tk.Toplevel):
 
     def _select_all(self):
         """Select all checkboxes."""
-        for source in self._checkbox_vars:
-            for var in self._checkbox_vars[source]:
-                for h in self._checkbox_vars[source][var]:
-                    self._checkbox_vars[source][var][h].set(True)
+        for var in self._checkbox_vars:
+            for height in self._checkbox_vars[var]:
+                self._checkbox_vars[var][height].set(True)
 
-            for var in self._var_master_checkboxes.get(source, {}):
-                self._var_master_checkboxes[source][var].set(True)
-            for h in self._height_master_checkboxes.get(source, {}):
-                self._height_master_checkboxes[source][h].set(True)
+        for var in self._var_master_checkboxes:
+            self._var_master_checkboxes[var].set(True)
+
+        for height in self._height_master_checkboxes:
+            self._height_master_checkboxes[height].set(True)
 
     def _unselect_all(self):
         """Unselect all checkboxes."""
-        for source in self._checkbox_vars:
-            for var in self._checkbox_vars[source]:
-                for h in self._checkbox_vars[source][var]:
-                    self._checkbox_vars[source][var][h].set(False)
+        for var in self._checkbox_vars:
+            for height in self._checkbox_vars[var]:
+                self._checkbox_vars[var][height].set(False)
 
-            for var in self._var_master_checkboxes.get(source, {}):
-                self._var_master_checkboxes[source][var].set(False)
-            for h in self._height_master_checkboxes.get(source, {}):
-                self._height_master_checkboxes[source][h].set(False)
+        for var in self._var_master_checkboxes:
+            self._var_master_checkboxes[var].set(False)
 
-    def _toggle_variable(self, source: str, var: str):
+        for height in self._height_master_checkboxes:
+            self._height_master_checkboxes[height].set(False)
+
+    def _toggle_variable(self, var: str):
         """Toggle all heights for a specific variable."""
-        new_state = self._var_master_checkboxes[source][var].get()
+        new_state = self._var_master_checkboxes[var].get()
 
-        for h in self._checkbox_vars[source][var]:
-            self._checkbox_vars[source][var][h].set(new_state)
+        for height in self._checkbox_vars[var]:
+            self._checkbox_vars[var][height].set(new_state)
 
-        self._update_master_checkboxes(source)
+        self._update_master_checkboxes()
 
-    def _toggle_height(self, source: str, height):
+    def _toggle_height(self, height):
         """Toggle all variables for a specific height."""
-        new_state = self._height_master_checkboxes[source][height].get()
+        new_state = self._height_master_checkboxes[height].get()
 
-        for var in self._checkbox_vars[source]:
-            if height in self._checkbox_vars[source][var]:
-                self._checkbox_vars[source][var][height].set(new_state)
+        for var in self._checkbox_vars:
+            if height in self._checkbox_vars[var]:
+                self._checkbox_vars[var][height].set(new_state)
 
-        self._update_master_checkboxes(source)
+        self._update_master_checkboxes()
 
-    def _update_master_checkboxes(self, source: str):
+    def _update_master_checkboxes(self):
         """Update master checkboxes based on individual checkbox states."""
-        for var in self._var_master_checkboxes.get(source, {}):
-            if var in self._checkbox_vars[source]:
-                states = [cb.get() for cb in self._checkbox_vars[source][var].values()]
+        for var in self._var_master_checkboxes:
+            if var in self._checkbox_vars:
+                states = [cb.get() for cb in self._checkbox_vars[var].values()]
                 if states:
-                    self._var_master_checkboxes[source][var].set(all(states))
+                    self._var_master_checkboxes[var].set(all(states))
 
-        for h in self._height_master_checkboxes.get(source, {}):
+        for height in self._height_master_checkboxes:
             states = []
-            for var in self._checkbox_vars[source]:
-                if h in self._checkbox_vars[source][var]:
-                    states.append(self._checkbox_vars[source][var][h].get())
+            for var in self._checkbox_vars:
+                if height in self._checkbox_vars[var]:
+                    states.append(self._checkbox_vars[var][height].get())
             if states:
-                self._height_master_checkboxes[source][h].set(all(states))
+                self._height_master_checkboxes[height].set(all(states))
 
     def _confirm_selection(self):
         """Gather selections and invoke callback."""
         final_selection = {}
 
-        for source, var_heights in self._checkbox_vars.items():
-            final_selection[source] = {}
+        for var, height_bools in self._checkbox_vars.items():
+            for height, bool_var in height_bools.items():
+                if bool_var.get():
+                    if height not in final_selection:
+                        final_selection[height] = []
 
-            for var, height_bools in var_heights.items():
-                for h, bool_var in height_bools.items():
-                    if bool_var.get():
-                        if h not in final_selection[source]:
-                            final_selection[source][h] = []
+                    final_selection[height].append(var)
 
-                        final_selection[source][h].append(var)
-
-                        if self._qc_map.get(source, {}).get(var):
-                            qc_var = f"{var}_qcflag"
-                            if qc_var not in final_selection[source][h]:
-                                final_selection[source][h].append(qc_var)
+                    if self._qc_map.get(var):
+                        qc_var = f"{var}_qcflag"
+                        if qc_var not in final_selection[height]:
+                            final_selection[height].append(qc_var)
 
         dataset_name = self._dataset_name_var.get().strip()
         if not dataset_name:
