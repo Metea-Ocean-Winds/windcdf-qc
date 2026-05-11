@@ -163,6 +163,17 @@ class DatasetManager:
         # Generate nested dict for this dataset
         self._nested_dicts[name] = self._generate_nested_dict(ds, ds_info, name)
     
+    def rename_dataset(self, old_name: str, new_name: str) -> None:
+        """Rename a registered dataset."""
+        if old_name not in self.datasets:
+            raise KeyError(f"Dataset '{old_name}' not found.")
+        if new_name != old_name and new_name in self.datasets:
+            raise ValueError(f"Dataset '{new_name}' already exists.")
+
+        self.datasets[new_name] = self.datasets.pop(old_name)
+        self._nested_dicts[new_name] = self._nested_dicts.pop(old_name)
+        self._dataset_info[new_name] = self._dataset_info.pop(old_name)
+
     def _set_time_range(self, ds: xr.Dataset) -> None:
         """Set the reference time range from a dataset."""
         first_time = ds[self.time_dim].values[0]

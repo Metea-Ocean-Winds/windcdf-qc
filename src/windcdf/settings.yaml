@@ -21,7 +21,7 @@ status_mapping:
   
   # Negative codes: Problem states
   -11:
-    label: "Suspect"
+    label: "Suspect (auto)"
     marker:
       color: grey
       edgecolor: grey
@@ -35,7 +35,7 @@ status_mapping:
     description: "Data manually flagged as suspect"
     
   -21:
-    label: "Fail"
+    label: "Fail (auto)"
     marker:
       color: black
       edgecolor: black
