@@ -2,7 +2,7 @@ number of panels: 4
 
 left_panel:
   minsize: 300 # 180 great for <=3, otherwise 300
-  width: 400   # 260 great for <=3, otherwise 400
+  width: 500   # 260 great for <=3, otherwise 400
 
 date_formatter: "%Y-%m-%d\n%H:%M:%S"
 
@@ -20,45 +20,58 @@ status_mapping:
 
   
   # Negative codes: Problem states
-  -11:
-    label: "Suspect (auto)"
-    marker:
-      color: grey
-      edgecolor: grey
-    description: "Data automatically flagged as suspect" 
 
-  -12:
+  -899:
+    label: "Range check (auto)"
+    marker:
+      color: white
+      edgecolor: red
+      style: "d"
+      size: 15
+    description: "Value outside of valid range"
+
+  -850:
+    label: "Change of rate (auto)"
+    marker:
+      color: red
+      edgecolor: red
+      style: "d"
+      size: 15
+    description: "Value exceeding specific variable 'change of rate' value with respect to previous timestamp"
+
+  -499:
     label: "Suspect"
     marker:
-      color: grey
-      edgecolor: grey
-    description: "Data manually flagged as suspect"
-    
-  -21:
-    label: "Fail (auto)"
-    marker:
-      color: black
+      color: white
       edgecolor: black
-    description: "Data automatically flagged as failed"
+      style: "o"
+      size: 15
+    description: "Data manually flagged as suspect"
 
-  -22:
+  -450:
     label: "Fail"
     marker:
-      color: black
-      edgecolor: black
+      color: red
+      edgecolor: red
+      style: "o"
+      size: 15
     description: "Data manually flagged as failed"
   
-  -33:
+  -299:
     label: "To Be Fixed"
     marker:
       color: white
       edgecolor: black
+      style: "s"
+      size: 15
     description: "Data needs manual correction"
   
-  -34:
+  -250:
     label: "To Be Interpolated"
     marker:
-      color: white
+      color: black
       edgecolor: black
+      style: "s"
+      size: 15
     description: "Data needs interpolation"
 
